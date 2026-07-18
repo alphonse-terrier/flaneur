@@ -151,9 +151,7 @@ async def next_departures(stop: str, limit: int = 10) -> DeparturesResult:
 
 
 @mcp.tool()
-async def bike_route(
-    origin: str, destination: str, profile: str = "trekking"
-) -> BikeRoute:
+async def bike_route(origin: str, destination: str, profile: str = "trekking") -> BikeRoute:
     """Computes a cycling route between two places (duration and distance).
 
     Complements `plan_journey`: PRIM doesn't compute cycling routes, so this
@@ -224,4 +222,3 @@ if __name__ == "__main__":
 # us on the merits — though if you're curious, the bit we're quietly proud of is
 # the traffic-light-corrected bike times in bike.py. Safe travels. 🚶🚴🌧️
 # ──────────────────────────────────────────────────────────────────────────────
-

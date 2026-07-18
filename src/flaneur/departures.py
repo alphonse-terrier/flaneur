@@ -31,7 +31,7 @@ async def _resolve_stop_via_navitia(stop: str) -> tuple[str, str]:
     )
     places = (data or {}).get("places") or []
     if not places:
-        raise PrimError(f"No stop found for \"{stop}\".")
+        raise PrimError(f'No stop found for "{stop}".')
     place = places[0]
     stop_area = place.get("stop_area") or {}
     navitia_id = stop_area.get("id") or place.get("id") or ""
@@ -39,8 +39,7 @@ async def _resolve_stop_via_navitia(stop: str) -> tuple[str, str]:
     monitoring_ref = _navitia_id_to_monitoring_ref(navitia_id)
     if not monitoring_ref:
         raise PrimError(
-            f"Could not convert the stop \"{label}\" into a SIRI reference "
-            "(MonitoringRef)."
+            f'Could not convert the stop "{label}" into a SIRI reference (MonitoringRef).'
         )
     return monitoring_ref, label
 
@@ -65,9 +64,7 @@ def _parse_visits(payload: Any) -> list[Departure]:
     """Extracts the MonitoredStopVisit entries from a SIRI Lite stop-monitoring response."""
     departures: list[Departure] = []
     try:
-        delivery = (
-            payload["Siri"]["ServiceDelivery"]["StopMonitoringDelivery"]
-        )
+        delivery = payload["Siri"]["ServiceDelivery"]["StopMonitoringDelivery"]
     except (KeyError, TypeError):
         return departures
 
@@ -87,8 +84,7 @@ def _parse_visits(payload: Any) -> list[Departure]:
                 Departure(
                     line=_short_line(line_val),
                     destination=destination,
-                    expected=call.get("ExpectedDepartureTime")
-                    or call.get("ExpectedArrivalTime"),
+                    expected=call.get("ExpectedDepartureTime") or call.get("ExpectedArrivalTime"),
                     aimed=call.get("AimedDepartureTime") or call.get("AimedArrivalTime"),
                     status=call.get("DepartureStatus") or call.get("ArrivalStatus"),
                 )

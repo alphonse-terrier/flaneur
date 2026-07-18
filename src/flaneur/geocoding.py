@@ -130,4 +130,4 @@ async def resolve_place(query: str, *, prefer_stops: bool = False) -> GeoLocatio
     if navitia is not None:
         return navitia
 
-    raise PrimError(f"No location found for \"{query}\".")
+    raise PrimError(f'No location found for "{query}".')

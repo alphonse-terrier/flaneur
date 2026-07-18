@@ -144,12 +144,10 @@ async def test_key_from_header_used(monkeypatch, _fixed_location):
         "flaneur.weather.get_settings",
         lambda: config.Settings(_env_file=None, openweather_api_key=""),
     )
-    monkeypatch.setattr(
-        "flaneur.weather.api_key_from_request", lambda names: "header-key"
+    monkeypatch.setattr("flaneur.weather.api_key_from_request", lambda names: "header-key")
+    route = respx.get(url__startswith="https://api.openweathermap.org/data/2.5/weather").mock(
+        return_value=httpx.Response(200, json=CURRENT)
     )
-    route = respx.get(
-        url__startswith="https://api.openweathermap.org/data/2.5/weather"
-    ).mock(return_value=httpx.Response(200, json=CURRENT))
     respx.get(url__startswith="https://api.openweathermap.org/data/2.5/forecast").mock(
         return_value=httpx.Response(200, json=FORECAST)
     )

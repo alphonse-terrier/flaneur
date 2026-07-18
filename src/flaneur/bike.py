@@ -44,14 +44,12 @@ _TRAFFIC_SIGNAL_DELAY_S = 15
 _STOP_SIGN_DELAY_S = 5
 
 
-async def bike_route(
-    origin: str, destination: str, profile: str = "trekking"
-) -> BikeRoute:
+async def bike_route(origin: str, destination: str, profile: str = "trekking") -> BikeRoute:
     """Computes a cycling route between two places (duration and distance)."""
     prof = (profile or "trekking").strip().lower()
     if prof not in _PROFILES:
         raise PrimError(
-            f"Unknown cycling profile: \"{profile}\". Accepted values: "
+            f'Unknown cycling profile: "{profile}". Accepted values: '
             f"{', '.join(sorted(_PROFILES))}."
         )
 
@@ -79,9 +77,7 @@ def _parse_brouter(
 ) -> BikeRoute:
     features = (data or {}).get("features") or []
     if not features:
-        raise PrimError(
-            "BRouter did not return a cycling route (points outside covered area?)."
-        )
+        raise PrimError("BRouter did not return a cycling route (points outside covered area?).")
     props = features[0].get("properties") or {}
     length_m = _to_int(props.get("track-length"))
     time_s = _to_int(props.get("total-time"))

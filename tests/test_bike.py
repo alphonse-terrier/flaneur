@@ -23,8 +23,19 @@ SAMPLE = {
 
 # Message table header, as returned by BRouter (real column order/names).
 _HEADER = [
-    "Longitude", "Latitude", "Elevation", "Distance", "CostPerKm", "ElevCost",
-    "TurnCost", "NodeCost", "InitialCost", "WayTags", "NodeTags", "Time", "Energy",
+    "Longitude",
+    "Latitude",
+    "Elevation",
+    "Distance",
+    "CostPerKm",
+    "ElevCost",
+    "TurnCost",
+    "NodeCost",
+    "InitialCost",
+    "WayTags",
+    "NodeTags",
+    "Time",
+    "Energy",
 ]
 
 

@@ -10,7 +10,8 @@ so MCP tools return an actionable explanation instead of a raw exception.
 from __future__ import annotations
 
 import asyncio
-from typing import Any, Mapping
+from collections.abc import Mapping
+from typing import Any
 
 import httpx
 
@@ -140,7 +141,8 @@ def _explain_status(exc: httpx.HTTPStatusError, source: str) -> PrimError:
         return PrimError(f"{source}: the upstream service is unavailable (HTTP {status}).")
     # Other 4xx: try to extract an error message from the body.
     detail = _extract_error_detail(exc.response)
-    return PrimError(f"{source}: request rejected (HTTP {status}){f' — {detail}' if detail else ''}.")
+    suffix = f" — {detail}" if detail else ""
+    return PrimError(f"{source}: request rejected (HTTP {status}){suffix}.")
 
 
 def _extract_error_detail(response: httpx.Response) -> str | None:

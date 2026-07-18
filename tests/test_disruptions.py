@@ -48,14 +48,8 @@ def test_extract_disruptions_empty():
 
 
 def test_navitia_id_to_monitoring_ref():
-    assert (
-        _navitia_id_to_monitoring_ref("stop_area:IDFM:71517")
-        == "STIF:StopArea:SP:71517:"
-    )
-    assert (
-        _navitia_id_to_monitoring_ref("STIF:StopArea:SP:71517:")
-        == "STIF:StopArea:SP:71517:"
-    )
+    assert _navitia_id_to_monitoring_ref("stop_area:IDFM:71517") == "STIF:StopArea:SP:71517:"
+    assert _navitia_id_to_monitoring_ref("STIF:StopArea:SP:71517:") == "STIF:StopArea:SP:71517:"
     assert _navitia_id_to_monitoring_ref("") is None
     assert _navitia_id_to_monitoring_ref("stop_area:IDFM:abc") is None
 

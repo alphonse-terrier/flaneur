@@ -115,7 +115,7 @@ class WeatherCurrent(BaseModel):
     """Current weather conditions at a place."""
 
     time: str | None = Field(default=None, description="Timestamp of the reading (ISO 8601).")
-    condition: str | None = Field(default=None, description="Description (e.g. \"Partly cloudy\").")
+    condition: str | None = Field(default=None, description='Description (e.g. "Partly cloudy").')
     weather_code: int | None = Field(default=None, description="OpenWeatherMap condition code.")
     temperature_c: float | None = None
     apparent_temperature_c: float | None = Field(

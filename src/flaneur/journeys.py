@@ -7,7 +7,7 @@ from typing import Any
 
 from flaneur.disruptions import parse_disruption
 from flaneur.geocoding import resolve_place
-from flaneur.models import Disruption, GeoLocation, Journey, JourneyResult, JourneySection
+from flaneur.models import Disruption, Journey, JourneyResult, JourneySection
 from flaneur.prim_client import PrimError, prim_get
 
 # Human-readable labels for Navitia section types.
@@ -37,8 +37,7 @@ def _from_iso_to_navitia(value: str) -> str:
         return datetime.fromisoformat(value).strftime("%Y%m%dT%H%M%S")
     except ValueError as exc:
         raise PrimError(
-            f"Invalid date/time: \"{value}\". Use ISO 8601 format "
-            "(e.g. 2026-07-18T08:30:00)."
+            f'Invalid date/time: "{value}". Use ISO 8601 format (e.g. 2026-07-18T08:30:00).'
         ) from exc
 
 
@@ -52,9 +51,7 @@ def _index_disruptions(payload: dict[str, Any]) -> dict[str, Disruption]:
     return result
 
 
-def _section_disruptions(
-    section: dict[str, Any], index: dict[str, Disruption]
-) -> list[Disruption]:
+def _section_disruptions(section: dict[str, Any], index: dict[str, Disruption]) -> list[Disruption]:
     infos = section.get("display_informations") or {}
     found: list[Disruption] = []
     seen: set[str] = set()
@@ -67,9 +64,7 @@ def _section_disruptions(
     return found
 
 
-def _summarize_section(
-    section: dict[str, Any], index: dict[str, Disruption]
-) -> JourneySection:
+def _summarize_section(section: dict[str, Any], index: dict[str, Disruption]) -> JourneySection:
     section_type = section.get("type", "")
     infos = section.get("display_informations") or {}
     line = infos.get("label") or infos.get("code") or infos.get("line")
@@ -110,9 +105,7 @@ def _summarize_section(
 
 def _summarize_journey(journey: dict[str, Any], index: dict[str, Disruption]) -> Journey:
     sections = [_summarize_section(s, index) for s in journey.get("sections") or []]
-    walking = sum(
-        s.duration_minutes for s in sections if s.mode == "street_network"
-    )
+    walking = sum(s.duration_minutes for s in sections if s.mode == "street_network")
     has_disruptions = any(s.disruptions for s in sections)
     return Journey(
         type=journey.get("type"),
