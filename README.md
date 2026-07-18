@@ -18,7 +18,7 @@ It ships as **two complementary pieces**:
 
 | Piece | What it is | Where |
 |---|---|---|
-| 🔌 **MCP server** | The engine. 6 tools any MCP client can call (Le Chat, Claude, …). Multi-user, deployed, HTTPS. | [`src/flaneur/`](src/flaneur/) |
+| 🔌 **MCP server** | The engine. 6 tools any MCP client can call (Mistral Vibe, Claude, …). Multi-user, deployed, HTTPS. | [`src/flaneur/`](src/flaneur/) |
 | 🧠 **Agent skill** | The brain. Orchestrates those tools into a single *"get me there on time"* workflow with Google Calendar. | [`skills/itinerary/`](skills/itinerary/SKILL.MD) |
 
 ---
@@ -46,7 +46,7 @@ It ships as **two complementary pieces**:
 
 ### ⭐ Morning briefing & disruption alerts (Mistral scheduled task)
 
-The headline use case. Connect Flâneur to **Mistral Le Chat**, then create a
+The headline use case. Connect Flâneur to **Mistral Vibe**, then create a
 **Scheduled Task** so your assistant does the thinking *before you wake up*:
 
 > *"Every weekday at 7:30, using Flâneur: compute the best departure time from
@@ -76,7 +76,7 @@ enough to walk?").
 > 💡 **Tip — save your defaults in Mistral Libraries once.** Flâneur gets far more
 > useful when it knows your **home address**, your **main work address**, and your
 > **preferred transport mode** (e.g. "bike if it's under 30 min, otherwise metro").
-> Add these to a **Library in Mistral Le Chat** so Le Chat reuses them automatically —
+> Add these to a **Library in Mistral Vibe** so it reuses them automatically —
 > your morning briefing then becomes a one-liner (*"when should I leave for work?"*)
 > with no addresses to retype. The `flaneur-itinerary` skill reads exactly these
 > fields (`user_home`, `user_work`, preferred mode) when planning.
@@ -118,8 +118,8 @@ The MCP tools each answer one question; the skill
 - Scans a date range to auto-plan **inter-meeting journeys**, flagging any pair of
   events too close together to travel between.
 
-It consumes this server's tools plus a connected Google Calendar MCP. On **Le Chat**,
-the same logic is expressed directly as a scheduled-task prompt (see
+It consumes this server's tools plus a connected Google Calendar MCP. On **Mistral
+Vibe**, the same logic is expressed directly as a scheduled-task prompt (see
 [Use cases](#-use-cases)); in **Claude Code / agents**, load the skill file.
 
 ---
@@ -129,8 +129,8 @@ the same logic is expressed directly as a scheduled-task prompt (see
 > **Live endpoint:** `https://idfm-mcp.onrender.com/mcp` — health check:
 > [`/healthz`](https://idfm-mcp.onrender.com/healthz)
 
-**Connect the hosted server to an MCP client** (Le Chat, Claude, …) — point it at the
-live `/mcp` endpoint and pass your keys as headers:
+**Connect the hosted server to an MCP client** (Mistral Vibe, Claude, …) — point it at
+the live `/mcp` endpoint and pass your keys as headers:
 
 ```json
 {
