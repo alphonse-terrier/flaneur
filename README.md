@@ -1,176 +1,139 @@
-# Flâneur
+# 🚶 Flâneur — your Paris mobility copilot
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](#license)
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
+![MCP](https://img.shields.io/badge/protocol-MCP-6E56CF)
+![Hackathon](https://img.shields.io/badge/Mistral-Vibe%20hackathon-FF7000)
 
-An **MCP** (Model Context Protocol) server for **Île-de-France mobility**: it plans
-public-transit **journeys** with real-time **roadworks & incident** impact, and rounds
-it out with real-time next departures, **cycling routes**, and **weather** — built on
-Île-de-France Mobilités' **PRIM API**.
+> Built for the **Mistral "Vibe" hackathon.**
 
-Given a start and end address, the server geocodes the places, computes the best
-real-time journeys, and surfaces the disruptions affecting each leg of the trip — so
-an assistant can answer "how do I get there, and will I actually arrive on time?"
-rather than just "what's the timetable?".
+Flâneur turns any AI assistant into a **mobility copilot for Île-de-France**. Give it
+two addresses and it plans the best public-transit route **in real time** — folding in
+roadworks and incidents — then rounds it out with cycling routes, next departures, and
+the weather. So your assistant can answer the question that actually matters:
 
-## Contents
+> *"What's the best way to get there, and will I actually arrive on time?"* — not just *"what's the timetable?"*
 
-- [Features](#features-mcp-tools)
-- [Architecture](#architecture)
-- [Requirements](#requirements)
-- [Authentication](#authentication--one-key-per-user)
-- [Local setup & run](#local-setup--run)
-- [Deploying on Render](#deploying-on-render)
-- [Skill: flaneur-itinerary](#skill-flaneur-itinerary)
-- [Limitations & assumptions](#limitations--assumptions)
-- [Tests](#tests)
-- [License](#license)
+It ships as **two complementary pieces**:
 
-## Features (MCP tools)
+| Piece | What it is | Where |
+|---|---|---|
+| 🔌 **MCP server** | The engine. 6 tools any MCP client can call (Le Chat, Claude, …). Multi-user, deployed, HTTPS. | [`src/flaneur/`](src/flaneur/) |
+| 🧠 **Agent skill** | The brain. Orchestrates those tools into a single *"get me there on time"* workflow with Google Calendar. | [`skills/itinerary/`](skills/itinerary/SKILL.MD) |
+
+---
+
+## ✨ What makes it interesting
+
+- **Real-time, not just timetables.** Every leg of a journey carries the roadworks /
+  incidents affecting it, and each route reports its live status (`NO_SERVICE`,
+  `SIGNIFICANT_DELAYS`, …) — pulled from IDFM's PRIM API.
+- **Honest travel times.** Cycling durations aren't taken at face value: BRouter's raw
+  estimate assumes near-uninterrupted riding (~20 km/h), so we **add a realistic delay
+  per traffic light on the route**, landing at the ~12-15 km/h you actually average in
+  Paris. Because the whole point is arriving on time. (See
+  [Engineering notes](#-engineering-notes).)
+- **Multi-source fusion.** Transit + cycling + weather + disruptions combined into one
+  recommendation: *"leave at 8:10 by bike — it's sunny and your line is disrupted."*
+- **Bring-your-own-key, multi-user.** Each user passes their own API key per request in
+  an HTTP header; nothing is stored, so one deployment safely serves everyone.
+- **Proactive, not just reactive.** Wire it to a **scheduled task** for a morning
+  briefing and live disruption alerts — see [Use cases](#-use-cases).
+
+---
+
+## 🎯 Use cases
+
+### ⭐ Morning briefing & disruption alerts (Mistral scheduled task)
+
+The headline use case. Connect Flâneur to **Mistral Le Chat**, then create a
+**Scheduled Task** so your assistant does the thinking *before you wake up*:
+
+> *"Every weekday at 7:30, using Flâneur: compute the best departure time from
+> `24 Rue Traversière, Paris` to `2 Rue des Mathurins, Paris` to arrive by 9:00.
+> If my line has a disruption or it's going to rain, tell me — and suggest the bike
+> or an alternate route. Otherwise just send the departure time."*
+
+Each morning you get a single, actionable message:
+
+> 🚇 *Leave at **8:14**. Line 8 has significant delays this morning — take the bus 87
+> instead (arrive 8:56). ☔ Light rain expected, bring a jacket.*
+
+The same pattern powers **live alerts** ("ping me if my usual line goes down before
+6pm") and **evening planning** ("how do I get home after the concert, and is it warm
+enough to walk?").
+
+### Other things it unlocks
+
+- **Bike vs metro, decided for you** — compares both and factors in the weather.
+- **"Am I on time?" across a busy day** — the skill scans your calendar and plans the
+  journeys *between* meetings, flagging any two that are too close to travel between.
+- **Auto-scheduled commutes** — detect location changes between calendar events and
+  drop the travel blocks straight into Google Calendar.
+- **Arrive-by planning for any mode** — "I want to bike and arrive by 14:00" returns
+  the exact departure time, buffer included.
+
+> 💡 **Tip — save your defaults in Mistral Libraries once.** Flâneur gets far more
+> useful when it knows your **home address**, your **main work address**, and your
+> **preferred transport mode** (e.g. "bike if it's under 30 min, otherwise metro").
+> Add these to a **Library in Mistral Le Chat** so Le Chat reuses them automatically —
+> your morning briefing then becomes a one-liner (*"when should I leave for work?"*)
+> with no addresses to retype. The `flaneur-itinerary` skill reads exactly these
+> fields (`user_home`, `user_work`, preferred mode) when planning.
+
+---
+
+## 🔌 The MCP server
+
+Six tools, callable from any MCP client:
 
 | Tool | Description |
 |---|---|
-| `geocode_address(query)` | Converts an address or place name into coordinates. |
-| `plan_journey(origin, destination, when?, arrive_by?, max_journeys?)` | Full real-time journey(s), with disruptions attached to each leg. |
-| `line_traffic(line?)` | Traffic info (roadworks/incidents): network-wide or for a given line. |
+| `geocode_address(query)` | Address or place name → coordinates. |
+| `plan_journey(origin, destination, when?, arrive_by?, max_journeys?)` | Best real-time transit journey(s), with disruptions attached to each leg. |
+| `line_traffic(line?)` | Traffic info (roadworks/incidents): network-wide or per line. |
 | `next_departures(stop, limit?)` | Real-time next departures at a stop. |
-| `bike_route(origin, destination, profile?)` | Cycling route (duration + distance) via BRouter, adjusted for traffic lights. |
-| `weather(location, days?)` | Current weather + daily forecast for an address (OpenWeatherMap). |
+| `bike_route(origin, destination, profile?)` | Cycling route (duration + distance), traffic-light adjusted. |
+| `weather(location, days?)` | Current weather + daily forecast for an address. |
 
 `origin` / `destination` accept an **address** ("29 rue de Rivoli, Paris"), a
-**stop name** ("Châtelet"), or **coordinates** in `longitude;latitude` format.
+**stop name** ("Châtelet"), or **coordinates** (`longitude;latitude`).
 
-## Architecture
+**Data sources:** [PRIM](https://prim.iledefrance-mobilites.fr) (IDFM — Navitia journeys
++ SIRI real-time), the French national geocoder (Géoplateforme), BRouter (cycling),
+and OpenWeatherMap (weather).
 
-```
-src/flaneur/
-├── config.py       # Configuration (PRIM_API_KEY, URLs, timeouts)
-├── prim_client.py  # Shared httpx client (apikey header, error handling, retries)
-├── geocoding.py     # Address → coordinates (national geocoder + Navitia /places)
-├── journeys.py      # /journeys + disruption-enriched summary
-├── disruptions.py   # Traffic info (disruptions_bulk / line_reports)
-├── departures.py    # Next departures (SIRI stop-monitoring)
-├── bike.py          # Cycling route (BRouter) + traffic-light time correction
-├── weather.py       # Weather (OpenWeatherMap) + in-memory cache
-├── models.py        # Pydantic models for tool outputs
-└── server.py        # FastMCP server + tool registration + /healthz
-```
+## 🧠 The skill: `flaneur-itinerary`
 
-Data sources:
-- **Navitia** via PRIM (`/journeys`, `/places`, `/line_reports`, `disruptions_bulk`) —
-  `apikey` header.
-- **SIRI Lite** via PRIM (`stop-monitoring`) — `apikey` header.
-- **National geocoder** (French national address database via Géoplateforme) — no key.
-- **BRouter** (open-source cycling router) for cycling — no key. PRIM can't compute
-  cycling routes (its Navitia coverage only routes walking). See
-  [Limitations](#limitations--assumptions) for how `bike_route` corrects BRouter's
-  overly optimistic raw duration.
-- **OpenWeatherMap** for weather (responses cached ~10 min). Key required: per-request
-  `X-OpenWeather-Api-Key` header, or `OPENWEATHER_API_KEY` fallback.
+The MCP tools each answer one question; the skill
+([`skills/itinerary/SKILL.MD`](skills/itinerary/SKILL.MD)) turns them into a decision:
 
-## Requirements
+- Picks the mode (`public_transport` / `bike` / `walk` / `auto`) — for `auto`, bike on
+  short trips when weather allows, else transit.
+- Computes the **recommended departure time** to hit a target arrival, with a
+  configurable buffer, **for every mode** (bike/walk departure is back-computed from
+  the target arrival).
+- Folds in disruptions, checks weather along cycling/walking routes, and cross-
+  references **Google Calendar** for nearby appointments and journey conflicts.
+- Scans a date range to auto-plan **inter-meeting journeys**, flagging any pair of
+  events too close together to travel between.
 
-- Python ≥ 3.10, and [uv](https://docs.astral.sh/uv/) (recommended) or pip.
-- A free **PRIM API key**: create an account at
-  <https://prim.iledefrance-mobilites.fr>, then generate a token under
-  *My account → Authentication tokens*. Required for `plan_journey`, `line_traffic`,
-  `next_departures`.
-- A free **OpenWeatherMap API key**: <https://openweathermap.org/api>. Required only
-  for `weather`.
+It consumes this server's tools plus a connected Google Calendar MCP. On **Le Chat**,
+the same logic is expressed directly as a scheduled-task prompt (see
+[Use cases](#-use-cases)); in **Claude Code / agents**, load the skill file.
 
-## Authentication — one key per user
+---
 
-The server is **multi-user**: each client supplies **its own PRIM key**, sent per
-request in an **HTTP header**. The key never flows through the LLM's conversation and
-is never stored by the server.
+## 🚀 Try it
 
-Accepted headers (in priority order):
-
-| Header | Example |
-|---|---|
-| `X-PRIM-Api-Key` | `X-PRIM-Api-Key: <your_token>` |
-| `apikey` | `apikey: <your_token>` |
-| `Authorization` (Bearer) | `Authorization: Bearer <your_token>` |
-
-Fallback: if no header is provided, the server uses the `PRIM_API_KEY` environment
-variable if set (handy locally, or as a default key). On a shared public deployment,
-leave `PRIM_API_KEY` empty to require every user to bring their own key.
-
-The `weather` tool follows the same model with an `X-OpenWeather-Api-Key` header
-(fallback: `OPENWEATHER_API_KEY`).
-
-> ⚠️ Always deploy behind **HTTPS** (Render does by default) so the key is encrypted
-> in transit.
-
-## Local setup & run
-
-```bash
-# 1. Dependencies (with uv, recommended)
-uv sync
-# ... or with pip
-pip install -e ".[dev]"
-
-# 2. Configuration
-cp .env.example .env
-# edit .env and fill in PRIM_API_KEY (and optionally OPENWEATHER_API_KEY)
-
-# 3. Run (HTTP transport, listens on http://localhost:8000/mcp)
-uv run flaneur
-# ... or: python -m flaneur.server
-```
-
-Check it's alive:
-
-```bash
-curl http://localhost:8000/healthz
-# {"status":"ok","service":"flaneur"}
-```
-
-### Testing with the MCP inspector
-
-```bash
-# Web UI to call tools manually
-uv run mcp dev src/flaneur/server.py
-# or
-npx @modelcontextprotocol/inspector
-```
-
-Example calls:
-- `geocode_address("29 rue de Rivoli, Paris")`
-- `plan_journey("Eiffel Tower, Paris", "Château de Vincennes")`
-- `line_traffic("14")` then `line_traffic()`
-- `next_departures("Châtelet")`
-- `bike_route("Bastille, Paris", "La Défense")` → ~12 km, ~45-50 min by bike (traffic-light adjusted)
-- `weather("Eiffel Tower, Paris")` → current conditions + forecast
-
-## Deploying on Render
-
-The repo includes a `render.yaml` blueprint. On Render:
-
-1. **New → Blueprint**, point it at this repo.
-2. Render creates a Python web service that runs `uv run flaneur`
-   (listens on `0.0.0.0:$PORT`; health-checked at `/healthz`).
-3. Leave `PRIM_API_KEY` (and `OPENWEATHER_API_KEY`) empty for a multi-user server
-   (each client brings its own key), or set a secret for a default fallback key.
-4. Once deployed, the MCP endpoint is exposed at `https://<app>.onrender.com/mcp`.
-
-> On Render's free plan, the service spins down after 15 minutes of inactivity; the
-> next request pays a cold-start delay (a few seconds to ~1 minute).
-
-If you rename the package or its entry point (`pyproject.toml`'s `[project.scripts]`),
-update the **Start Command** in the Render dashboard to match — it isn't re-read from
-`render.yaml` once a service has been created manually.
-
-### Connecting an MCP client
-
-Each user configures the remote server with **their own PRIM key** (and, if using
-`weather`, their own OpenWeatherMap key) in the headers:
+**Connect the hosted server to an MCP client** (Le Chat, Claude, …) — point it at your
+deployment's `/mcp` endpoint and pass your keys as headers:
 
 ```json
 {
   "mcpServers": {
     "flaneur": {
-      "url": "https://<app>.onrender.com/mcp",
+      "url": "https://<your-app>.onrender.com/mcp",
       "headers": {
         "X-PRIM-Api-Key": "YOUR_PRIM_TOKEN",
         "X-OpenWeather-Api-Key": "YOUR_OPENWEATHER_KEY"
@@ -180,54 +143,114 @@ Each user configures the remote server with **their own PRIM key** (and, if usin
 }
 ```
 
-## Skill: flaneur-itinerary
+Then ask: *"Best way from the Eiffel Tower to Château de Vincennes right now?"* or
+*"How long to bike from Bastille to La Défense, and what's the weather?"*
 
-The repo ships an agent **skill** at [`skills/itinerary/SKILL.MD`](skills/itinerary/SKILL.MD)
-that turns the raw MCP tools into a single "get me there on time" workflow. Where
-the MCP tools each answer one question, the skill orchestrates them into a decision:
-
-- Picks the mode (`public_transport` / `bike` / `walk` / `auto`) and, for `auto`,
-  chooses bike for short trips when the weather allows, else public transport.
-- Computes the **recommended departure time** to hit a target arrival, with a
-  configurable safety buffer — for *every* mode, not just transit (bike/walk
-  departure is back-computed from the target arrival).
-- Folds in disruptions, checks the weather along cycling/walking routes, and cross-
-  references **Google Calendar** for nearby appointments and journey conflicts.
-- Can scan a date range and auto-plan **inter-meeting journeys**, flagging any pair
-  of events too close together to travel between.
-
-It consumes this server's tools (`geocode_address`, `plan_journey`, `bike_route`,
-`weather`, …) plus a connected Google Calendar MCP. It's provider-agnostic about the
-calendar integration: confirm the Calendar tool/parameter names against whatever MCP
-you have connected (see the note in the skill).
-
-**Using it:** point your agent's skills directory at `skills/`, or copy
-`skills/itinerary/` into it. In Claude Code, invoke it by name once loaded; the
-skill's own file documents inputs, outputs, and the full procedure.
-
-## Limitations & assumptions
-
-- **`bike_route` durations are adjusted, not raw router output.** BRouter's own
-  duration assumes near-uninterrupted road cycling (~19-21 km/h observed in Paris
-  testing); its intersection cost is a token turn-penalty, not a realistic
-  traffic-light wait. `bike_route` adds ~15s per traffic-signal crossing actually on
-  the route, bringing estimates into the ~11-15 km/h range seen in real-world dense
-  urban cycling (consistent with published Vélib' averages). The `shortest` BRouter
-  profile is excluded entirely: it can route onto footways at walking pace, which
-  would silently produce a wrong duration.
-- **`plan_journey` real-time data depends on PRIM's freshness.** Disruptions and
-  delays are as current as PRIM's feed; a `NO_SERVICE` or `SIGNIFICANT_DELAYS` status
-  reflects what PRIM reports at request time, not a prediction.
-- **`weather` forecasts cap at 5 days** (OpenWeatherMap free tier) and are cached for
-  ~10 minutes per location to limit API usage — a request for the same area shortly
-  after another may return a slightly stale reading.
-- **Geocoding picks the top match.** For ambiguous queries (a common street name with
-  no city), prefer including the postal code or city.
-
-## Tests
+**Or run it locally:**
 
 ```bash
-uv run pytest        # unit tests (parsing, no real network calls)
+uv sync                 # install deps
+cp .env.example .env    # add PRIM_API_KEY (+ optionally OPENWEATHER_API_KEY)
+uv run flaneur          # HTTP transport on http://localhost:8000/mcp
+
+curl http://localhost:8000/healthz   # {"status":"ok","service":"flaneur"}
+```
+
+Inspect the tools interactively: `uv run mcp dev src/flaneur/server.py`.
+
+Example calls once connected:
+- `plan_journey("Eiffel Tower, Paris", "Château de Vincennes")`
+- `line_traffic("14")` — then `line_traffic()` for the whole network
+- `next_departures("Châtelet")`
+- `bike_route("Bastille, Paris", "La Défense")` → ~12 km, ~45-50 min (traffic-light adjusted)
+- `weather("Eiffel Tower, Paris")`
+
+## 🔑 Get the keys (both free)
+
+- **PRIM** (required for transit): create an account at
+  <https://prim.iledefrance-mobilites.fr> → *My account → Authentication tokens*.
+- **OpenWeatherMap** (only for `weather`): <https://openweathermap.org/api>.
+
+## 🗺️ Architecture
+
+```
+flaneur/
+├── src/flaneur/          # the MCP server
+│   ├── server.py         #   FastMCP app, tool registration, /healthz
+│   ├── config.py         #   settings (keys, URLs, cache TTL)
+│   ├── prim_client.py    #   shared httpx client: per-request keys, retries, errors
+│   ├── geocoding.py      #   address → coordinates (national geocoder + Navitia)
+│   ├── journeys.py       #   plan_journey + disruption-enriched summaries
+│   ├── disruptions.py    #   line_traffic (disruptions_bulk / line_reports)
+│   ├── departures.py     #   next_departures (SIRI stop-monitoring)
+│   ├── bike.py           #   bike_route (BRouter) + traffic-light correction
+│   ├── weather.py        #   weather (OpenWeatherMap) + in-memory cache
+│   └── models.py         #   Pydantic output models
+├── skills/itinerary/     # the agent skill (flaneur-itinerary)
+├── tests/                # unit tests (parsing/logic, no live network)
+├── render.yaml           # one-click Render deployment
+└── pyproject.toml
+```
+
+## 🔐 Authentication — one key per user
+
+The server is **multi-user**: each client sends **its own key** per request in an HTTP
+header. The key never flows through the LLM's conversation and is never stored.
+
+| Purpose | Header (priority order) | Env fallback |
+|---|---|---|
+| Transit (PRIM) | `X-PRIM-Api-Key`, `apikey`, or `Authorization: Bearer …` | `PRIM_API_KEY` |
+| Weather (OpenWeatherMap) | `X-OpenWeather-Api-Key` | `OPENWEATHER_API_KEY` |
+
+On a shared public deployment, leave the env vars empty to require every user to bring
+their own key. Always deploy behind **HTTPS** (Render does by default) so keys are
+encrypted in transit.
+
+## ☁️ Deploying on Render
+
+The repo includes a `render.yaml` blueprint:
+
+1. **New → Blueprint**, point it at this repo.
+2. Render runs a Python web service (`uv run flaneur`) on `0.0.0.0:$PORT`, health-
+   checked at `/healthz`.
+3. Leave `PRIM_API_KEY` / `OPENWEATHER_API_KEY` empty for a multi-user server, or set
+   secrets for default fallback keys.
+4. The MCP endpoint is exposed at `https://<app>.onrender.com/mcp`.
+
+> Free plan: the service sleeps after 15 min idle; the next request pays a cold start.
+> If you rename the entry point in `pyproject.toml`, update the dashboard **Start
+> Command** to match — it isn't re-read from `render.yaml` on an existing service.
+
+## 🔬 Engineering notes
+
+A few decisions worth surfacing:
+
+- **Traffic-light-adjusted cycling.** Raw BRouter durations imply ~20 km/h in Paris —
+  optimistic for on-time planning. `bike_route` adds ~15 s per traffic-signal crossing
+  actually on the route (BRouter reports each crossing), landing at realistic
+  ~12-15 km/h. The broken `shortest` profile (which routed onto footways at walking
+  pace) is excluded.
+- **Resilient upstreams.** The shared HTTP client retries transient `429`/`503` with
+  backoff, and weather responses are cached ~10 min to respect OpenWeatherMap's free-
+  tier limits. Errors become clear, source-attributed messages, not raw stack traces.
+- **Verbose-API taming.** Navitia's journey payloads are large; `journeys.py` flattens
+  them into compact, LLM-friendly summaries and re-attaches each disruption to the
+  exact leg it affects.
+
+### Limitations & assumptions
+
+- Cycling/walking times are estimates (PRIM only routes walking; there's no walk
+  router, so walking distance uses a straight-line estimate with an urban circuity
+  correction). Transit times come from real, disruption-aware schedules.
+- Weather forecasts cap at 5 days (OpenWeatherMap free tier).
+- Geocoding takes the top match — include a postcode/city for ambiguous names.
+- The Google Calendar tool/parameter names in the skill are illustrative; confirm them
+  against your connected Calendar MCP.
+
+## ✅ Tests
+
+```bash
+uv run pytest        # unit tests: parsing, timing, caching, key resolution — no live network
 ```
 
 ## License
