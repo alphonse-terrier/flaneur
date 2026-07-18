@@ -1,19 +1,19 @@
-"""Prochains passages temps réel via SIRI Lite ``stop-monitoring`` de PRIM."""
+"""Real-time next departures via PRIM's SIRI Lite ``stop-monitoring``."""
 
 from __future__ import annotations
 
 from typing import Any
 
-from idfm_mcp.config import get_settings
-from idfm_mcp.models import Departure, DeparturesResult
-from idfm_mcp.prim_client import PrimError, prim_get
+from flaneur.config import get_settings
+from flaneur.models import Departure, DeparturesResult
+from flaneur.prim_client import PrimError, prim_get
 
 
 async def _resolve_stop(stop: str) -> tuple[str, str]:
-    """Résout un nom d'arrêt en (MonitoringRef SIRI, libellé).
+    """Resolves a stop name into (SIRI MonitoringRef, label).
 
-    Accepte directement un id (``STIF:StopArea:SP:...`` ou ``stop_area:IDFM:...``),
-    sinon interroge Navitia ``/places`` pour trouver la zone d'arrêt.
+    Accepts an id directly (``STIF:StopArea:SP:...`` or ``stop_area:IDFM:...``),
+    otherwise queries Navitia ``/places`` to find the stop area.
     """
     stop = stop.strip()
     if stop.startswith("STIF:StopArea:SP:"):
@@ -31,7 +31,7 @@ async def _resolve_stop_via_navitia(stop: str) -> tuple[str, str]:
     )
     places = (data or {}).get("places") or []
     if not places:
-        raise PrimError(f"Aucun arrêt trouvé pour « {stop} ».")
+        raise PrimError(f"No stop found for \"{stop}\".")
     place = places[0]
     stop_area = place.get("stop_area") or {}
     navitia_id = stop_area.get("id") or place.get("id") or ""
@@ -39,16 +39,16 @@ async def _resolve_stop_via_navitia(stop: str) -> tuple[str, str]:
     monitoring_ref = _navitia_id_to_monitoring_ref(navitia_id)
     if not monitoring_ref:
         raise PrimError(
-            f"Impossible de convertir l'arrêt « {label} » en référence SIRI "
+            f"Could not convert the stop \"{label}\" into a SIRI reference "
             "(MonitoringRef)."
         )
     return monitoring_ref, label
 
 
 def _navitia_id_to_monitoring_ref(navitia_id: str) -> str | None:
-    """Convertit un id Navitia (stop_area:IDFM:<n>) en MonitoringRef SIRI.
+    """Converts a Navitia id (stop_area:IDFM:<n>) into a SIRI MonitoringRef.
 
-    Ex. ``stop_area:IDFM:71517`` → ``STIF:StopArea:SP:71517:``.
+    E.g. ``stop_area:IDFM:71517`` → ``STIF:StopArea:SP:71517:``.
     """
     if not navitia_id:
         return None
@@ -62,7 +62,7 @@ def _navitia_id_to_monitoring_ref(navitia_id: str) -> str | None:
 
 
 def _parse_visits(payload: Any) -> list[Departure]:
-    """Extrait les MonitoredStopVisit d'une réponse SIRI Lite stop-monitoring."""
+    """Extracts the MonitoredStopVisit entries from a SIRI Lite stop-monitoring response."""
     departures: list[Departure] = []
     try:
         delivery = (
@@ -97,7 +97,7 @@ def _parse_visits(payload: Any) -> list[Departure]:
 
 
 def _siri_text(value: Any) -> str | None:
-    """SIRI encode souvent les libellés en [{'value': '...'}]."""
+    """SIRI often encodes labels as [{'value': '...'}]."""
     if isinstance(value, list) and value:
         first = value[0]
         return first.get("value") if isinstance(first, dict) else str(first)
@@ -109,16 +109,16 @@ def _siri_text(value: Any) -> str | None:
 
 
 def _short_line(line_ref: Any) -> str | None:
-    """Extrait un identifiant de ligne lisible d'un LineRef SIRI."""
+    """Extracts a human-readable line identifier from a SIRI LineRef."""
     if not isinstance(line_ref, str):
         return None
-    # Ex. STIF:Line::C01371: → C01371
+    # E.g. STIF:Line::C01371: → C01371
     parts = [p for p in line_ref.split(":") if p]
     return parts[-1] if parts else line_ref
 
 
 async def next_departures(stop: str, limit: int = 10) -> DeparturesResult:
-    """Retourne les prochains passages temps réel à un arrêt."""
+    """Returns the next real-time departures at a stop."""
     monitoring_ref, label = await _resolve_stop(stop)
 
     url = f"{get_settings().prim_marketplace_base}/stop-monitoring"
@@ -131,7 +131,7 @@ async def next_departures(stop: str, limit: int = 10) -> DeparturesResult:
 
     note = None
     if not departures:
-        note = "Aucun passage temps réel disponible pour cet arrêt actuellement."
+        note = "No real-time departure currently available for this stop."
 
     return DeparturesResult(
         stop_label=label,

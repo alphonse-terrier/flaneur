@@ -1,15 +1,15 @@
-"""Tests de l'itinéraire vélo (parsing BRouter, sans appel réseau)."""
+"""Tests for the cycling route (BRouter parsing, no network calls)."""
 
 import pytest
 
-from idfm_mcp.bike import _parse_brouter, bike_route
-from idfm_mcp.models import GeoLocation
-from idfm_mcp.prim_client import PrimError
+from flaneur.bike import _parse_brouter, bike_route
+from flaneur.models import GeoLocation
+from flaneur.prim_client import PrimError
 
 A = GeoLocation(label="Bastille", longitude=2.3692, latitude=48.8531)
 B = GeoLocation(label="La Défense", longitude=2.2377, latitude=48.8918)
 
-# Réponse BRouter typique (GeoJSON) : métriques sous forme de chaînes.
+# Typical BRouter response (GeoJSON): metrics as strings.
 SAMPLE = {
     "type": "FeatureCollection",
     "features": [
@@ -32,11 +32,11 @@ def test_parse_brouter():
 
 
 def test_parse_brouter_empty():
-    with pytest.raises(PrimError, match="n'a pas retourné"):
+    with pytest.raises(PrimError, match="did not return"):
         _parse_brouter({"features": []}, A, B, "trekking")
 
 
 async def test_bike_route_rejects_unknown_profile():
-    """La validation du profil a lieu avant tout appel réseau."""
-    with pytest.raises(PrimError, match="Profil vélo inconnu"):
-        await bike_route("A", "B", profile="fusée")
+    """Profile validation happens before any network call."""
+    with pytest.raises(PrimError, match="Unknown cycling profile"):
+        await bike_route("A", "B", profile="rocket")

@@ -1,39 +1,39 @@
-"""Calcul d'itinéraire à vélo via BRouter (routeur cyclable gratuit, sans clé).
+"""Cycling route calculation via BRouter (free, no-key cycling router).
 
-PRIM/Navitia ne route que la marche : les modes vélo/voiture y sont ignorés. Pour
-un vrai temps de trajet à vélo, on interroge BRouter (https://brouter.de), qui
-renvoie distance et durée estimée en GeoJSON.
+PRIM/Navitia only routes walking: cycling/car modes are ignored there. For a
+real cycling travel time, we query BRouter (https://brouter.de), which
+returns distance and estimated duration as GeoJSON.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-from idfm_mcp.config import get_settings
-from idfm_mcp.geocoding import resolve_place
-from idfm_mcp.models import BikeRoute, GeoLocation
-from idfm_mcp.prim_client import PrimError, public_get
+from flaneur.config import get_settings
+from flaneur.geocoding import resolve_place
+from flaneur.models import BikeRoute, GeoLocation
+from flaneur.prim_client import PrimError, public_get
 
-# Profils BRouter proposés (adaptés au vélo). trekking = équilibré (défaut),
-# fastbike = privilégie la vitesse, shortest = plus court.
+# Available BRouter profiles. trekking = balanced (default), fastbike =
+# prioritizes speed, shortest = shortest distance.
 _PROFILES = {"trekking", "fastbike", "shortest"}
 
 
 async def bike_route(
     origin: str, destination: str, profile: str = "trekking"
 ) -> BikeRoute:
-    """Calcule un itinéraire à vélo entre deux lieux (durée et distance)."""
+    """Computes a cycling route between two places (duration and distance)."""
     prof = (profile or "trekking").strip().lower()
     if prof not in _PROFILES:
         raise PrimError(
-            f"Profil vélo inconnu : « {profile} ». Valeurs acceptées : "
+            f"Unknown cycling profile: \"{profile}\". Accepted values: "
             f"{', '.join(sorted(_PROFILES))}."
         )
 
     origin_loc = await resolve_place(origin)
     destination_loc = await resolve_place(destination)
 
-    # BRouter attend lonlats=lon,lat|lon,lat.
+    # BRouter expects lonlats=lon,lat|lon,lat.
     lonlats = (
         f"{origin_loc.longitude},{origin_loc.latitude}"
         f"|{destination_loc.longitude},{destination_loc.latitude}"
@@ -55,7 +55,7 @@ def _parse_brouter(
     features = (data or {}).get("features") or []
     if not features:
         raise PrimError(
-            "BRouter n'a pas retourné d'itinéraire vélo (points hors zone couverte ?)."
+            "BRouter did not return a cycling route (points outside covered area?)."
         )
     props = features[0].get("properties") or {}
     length_m = _to_int(props.get("track-length"))
@@ -70,7 +70,7 @@ def _parse_brouter(
 
 
 def _to_int(value: Any) -> int:
-    """BRouter renvoie ses métriques sous forme de chaînes (« 11463 »)."""
+    """BRouter returns its metrics as strings (e.g. "11463")."""
     try:
         return int(float(value))
     except (TypeError, ValueError):

@@ -1,4 +1,4 @@
-"""Info trafic : perturbations (travaux, incidents, retards) globales ou par ligne."""
+"""Traffic info: disruptions (roadworks, incidents, delays), network-wide or per line."""
 
 from __future__ import annotations
 
@@ -6,14 +6,14 @@ import re
 from datetime import datetime
 from typing import Any
 
-from idfm_mcp.models import Disruption
-from idfm_mcp.prim_client import prim_get
+from flaneur.models import Disruption
+from flaneur.prim_client import prim_get
 
 _TAG_RE = re.compile(r"<[^>]+>")
 
 
 def _clean_text(text: str | None) -> str | None:
-    """Retire les balises HTML des messages voyageurs."""
+    """Strips HTML tags from rider-facing messages."""
     if not text:
         return None
     stripped = _TAG_RE.sub(" ", text)
@@ -30,7 +30,7 @@ def _to_iso(navitia_dt: str | None) -> str | None:
 
 
 def parse_disruption(raw: dict[str, Any]) -> Disruption:
-    """Normalise un objet ``disruption`` Navitia en modèle compact."""
+    """Normalizes a Navitia ``disruption`` object into a compact model."""
     severity = raw.get("severity") or {}
     periods = raw.get("application_periods") or []
     first_period = periods[0] if periods else {}
@@ -59,20 +59,20 @@ def parse_disruption(raw: dict[str, Any]) -> Disruption:
 
 
 def _extract_disruptions(payload: Any) -> list[Disruption]:
-    """Extrait la liste de perturbations d'une réponse (formats variés)."""
+    """Extracts the list of disruptions from a response (varying formats)."""
     if not isinstance(payload, dict):
         return []
-    # Format Navitia : liste de premier niveau "disruptions".
+    # Navitia format: top-level "disruptions" list.
     raw_list = payload.get("disruptions")
-    # Format disruptions_bulk : parfois imbriqué sous "disruptions" également.
+    # disruptions_bulk format: sometimes nested under "disruptions" too.
     if not raw_list and isinstance(payload.get("data"), dict):
         raw_list = payload["data"].get("disruptions")
     return [parse_disruption(d) for d in (raw_list or [])]
 
 
 async def global_disruptions() -> list[Disruption]:
-    """Toutes les perturbations en cours et à venir (endpoint disruptions_bulk)."""
-    from idfm_mcp.config import get_settings
+    """All current and upcoming disruptions (disruptions_bulk endpoint)."""
+    from flaneur.config import get_settings
 
     url = f"{get_settings().prim_marketplace_base}/disruptions_bulk"
     payload = await prim_get(url, source="PRIM disruptions_bulk")
@@ -80,18 +80,18 @@ async def global_disruptions() -> list[Disruption]:
 
 
 async def line_disruptions(line: str) -> list[Disruption]:
-    """Perturbations d'une ligne donnée (nom/code ou id Navitia) via line_reports.
+    """Disruptions for a given line (name/code or Navitia id) via line_reports.
 
-    Si ``line`` est un id Navitia (``line:IDFM:...``), on cible directement la ligne.
-    Sinon on filtre le rapport global sur le libellé.
+    If ``line`` is a Navitia id (``line:IDFM:...``), the line is targeted
+    directly. Otherwise the global report is filtered by label.
     """
     if line.startswith("line:"):
-        # Chemin ciblé ; note : "line_reports" est dupliqué dans le chemin sur PRIM.
+        # Targeted path; note: "line_reports" is duplicated in the path on PRIM.
         path = f"lines/{line}/line_reports/line_reports"
         payload = await prim_get(path, {"count": 100}, source="Navitia line_reports")
         return _extract_disruptions(payload)
 
-    # Rapport global puis filtrage sur le libellé de ligne impactée.
+    # Global report, then filter by impacted line label.
     payload = await prim_get(
         "line_reports/line_reports",
         {"count": 100},

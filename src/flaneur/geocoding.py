@@ -1,12 +1,13 @@
-"""Résolution d'adresses et de lieux en coordonnées.
+"""Resolving addresses and places into coordinates.
 
-Deux sources complémentaires :
-- Le géocodeur national (Base Adresse Nationale via Géoplateforme, sans clé) pour
-  les adresses postales — durable et précis.
-- L'autocomplétion Navitia ``/places`` de PRIM pour les noms d'arrêts/gares.
+Two complementary sources:
+- The national geocoder (French national address database via Géoplateforme,
+  no key) for postal addresses — durable and precise.
+- PRIM's Navitia ``/places`` autocomplete for stop/station names.
 
-``resolve_place`` tente d'abord le géocodeur BAN ; si aucun résultat probant, il
-se rabat sur Navitia (utile pour un simple nom de station comme « Châtelet »).
+``resolve_place`` tries the national geocoder first; if there's no solid
+match, it falls back to Navitia (useful for a bare station name like
+"Châtelet").
 """
 
 from __future__ import annotations
@@ -14,11 +15,11 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from idfm_mcp.config import get_settings
-from idfm_mcp.models import GeoLocation
-from idfm_mcp.prim_client import PrimError, prim_get, public_get
+from flaneur.config import get_settings
+from flaneur.models import GeoLocation
+from flaneur.prim_client import PrimError, prim_get, public_get
 
-# Une entrée "lon;lat" déjà fournie par l'utilisateur (deux flottants séparés par ;).
+# A "lon;lat" entry already supplied by the user (two floats separated by ;).
 _LONLAT_RE = re.compile(r"^\s*(-?\d+(?:\.\d+)?)\s*;\s*(-?\d+(?:\.\d+)?)\s*$")
 
 
@@ -30,21 +31,21 @@ def _parse_lonlat(query: str) -> GeoLocation | None:
     return GeoLocation(label=f"{lon};{lat}", longitude=lon, latitude=lat, kind="coord")
 
 
-async def _geocode_ban(query: str) -> GeoLocation | None:
-    """Géocode une adresse via Géoplateforme, avec repli sur api-adresse.data.gouv.fr."""
+async def _geocode_national(query: str) -> GeoLocation | None:
+    """Geocodes an address via Géoplateforme, falling back to api-adresse.data.gouv.fr."""
     settings = get_settings()
     endpoints = [
-        (f"{settings.geocoder_base}/search", "Géocodeur Géoplateforme"),
-        (f"{settings.geocoder_fallback_base}/search", "Géocodeur BAN"),
+        (f"{settings.geocoder_base}/search", "Géoplateforme geocoder"),
+        (f"{settings.geocoder_fallback_base}/search", "National address geocoder"),
     ]
     last_error: PrimError | None = None
     for url, source in endpoints:
         try:
             data = await public_get(url, {"q": query, "limit": 1}, source=source)
-        except PrimError as exc:  # essaie l'endpoint suivant
+        except PrimError as exc:  # try the next endpoint
             last_error = exc
             continue
-        location = _parse_ban_feature(data)
+        location = _parse_geocoder_feature(data)
         if location is not None:
             return location
     if last_error is not None:
@@ -52,7 +53,7 @@ async def _geocode_ban(query: str) -> GeoLocation | None:
     return None
 
 
-def _parse_ban_feature(data: Any) -> GeoLocation | None:
+def _parse_geocoder_feature(data: Any) -> GeoLocation | None:
     features = (data or {}).get("features") or []
     if not features:
         return None
@@ -73,9 +74,9 @@ def _parse_ban_feature(data: Any) -> GeoLocation | None:
 
 
 async def _geocode_navitia(query: str, *, types: list[str]) -> GeoLocation | None:
-    """Autocomplétion Navitia ``/places`` (adresses, arrêts, POIs)."""
-    # httpx sérialise une valeur de type liste en répétant le paramètre (type[]=a&type[]=b),
-    # ce qu'attend Navitia.
+    """Navitia ``/places`` autocomplete (addresses, stops, POIs)."""
+    # httpx serializes a list value by repeating the parameter (type[]=a&type[]=b),
+    # which is what Navitia expects.
     data = await prim_get(
         "places",
         {"q": query, "type[]": types},
@@ -103,13 +104,13 @@ def _parse_navitia_place(place: dict[str, Any]) -> GeoLocation | None:
 
 
 async def resolve_place(query: str, *, prefer_stops: bool = False) -> GeoLocation:
-    """Résout une entrée libre (adresse, nom d'arrêt, ou `lon;lat`) en coordonnées.
+    """Resolves a free-form entry (address, stop name, or `lon;lat`) into coordinates.
 
-    Lève ``PrimError`` si rien n'est trouvé.
+    Raises ``PrimError`` if nothing is found.
     """
     query = query.strip()
     if not query:
-        raise PrimError("Lieu vide : fournissez une adresse, un nom d'arrêt ou des coordonnées.")
+        raise PrimError("Empty location: provide an address, a stop name, or coordinates.")
 
     direct = _parse_lonlat(query)
     if direct is not None:
@@ -120,13 +121,13 @@ async def resolve_place(query: str, *, prefer_stops: bool = False) -> GeoLocatio
         if navitia is not None:
             return navitia
 
-    ban = await _geocode_ban(query)
-    if ban is not None:
-        return ban
+    national = await _geocode_national(query)
+    if national is not None:
+        return national
 
-    # Dernier recours : autocomplétion Navitia (nom d'arrêt/POI sans adresse postale).
+    # Last resort: Navitia autocomplete (stop/POI name without a postal address).
     navitia = await _geocode_navitia(query, types=["stop_area", "poi", "address"])
     if navitia is not None:
         return navitia
 
-    raise PrimError(f"Aucun lieu trouvé pour « {query} ».")
+    raise PrimError(f"No location found for \"{query}\".")

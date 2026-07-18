@@ -1,11 +1,10 @@
-"""Client HTTP partagé pour les appels à l'API PRIM et au géocodeur BAN.
+"""Shared HTTP client for calls to the PRIM API and the national geocoder.
 
-Un unique ``httpx.AsyncClient`` est réutilisé pour toute la durée de vie du
-serveur. La clé PRIM est résolue **par requête** : chaque client envoie la sienne
-dans un en-tête HTTP (``X-PRIM-Api-Key``), avec repli sur la variable d'env
-``PRIM_API_KEY``. Les erreurs réseau et HTTP sont converties en ``PrimError`` avec
-un message clair, afin que les outils MCP renvoient une explication exploitable au
-lieu d'une exception brute.
+A single ``httpx.AsyncClient`` is reused for the server's whole lifetime. The
+PRIM key is resolved **per request**: each client sends its own via an HTTP
+header (``X-PRIM-Api-Key``), falling back to the ``PRIM_API_KEY`` env var.
+Network and HTTP errors are converted into ``PrimError`` with a clear message,
+so MCP tools return an actionable explanation instead of a raw exception.
 """
 
 from __future__ import annotations
@@ -15,19 +14,19 @@ from typing import Any, Mapping
 
 import httpx
 
-from idfm_mcp.config import Settings, get_settings
+from flaneur.config import Settings, get_settings
 
-# En-têtes HTTP acceptés pour transmettre la clé PRIM par requête (insensibles à la casse).
+# HTTP headers accepted for passing the PRIM key per request (case-insensitive).
 API_KEY_HEADERS = ("x-prim-api-key", "apikey", "prim-api-key")
 
-# Réessai sur codes transitoires (limite de débit / indisponibilité momentanée).
+# Retry on transient status codes (rate limiting / momentary unavailability).
 _RETRY_STATUS = {429, 503}
 _MAX_RETRIES = 2
-_RETRY_BACKOFF = 0.6  # secondes, multiplié par le numéro de tentative
+_RETRY_BACKOFF = 0.6  # seconds, multiplied by the attempt number
 
 
 class PrimError(RuntimeError):
-    """Erreur exploitable renvoyée aux outils MCP (message lisible pour l'utilisateur)."""
+    """Actionable error surfaced to MCP tools (human-readable message)."""
 
 
 _client: httpx.AsyncClient | None = None
@@ -42,7 +41,7 @@ def _build_client(settings: Settings) -> httpx.AsyncClient:
 
 
 def get_client() -> httpx.AsyncClient:
-    """Retourne le client HTTP partagé, en le créant au premier appel."""
+    """Returns the shared HTTP client, creating it on first use."""
     global _client
     if _client is None or _client.is_closed:
         _client = _build_client(get_settings())
@@ -50,7 +49,7 @@ def get_client() -> httpx.AsyncClient:
 
 
 async def close_client() -> None:
-    """Ferme le client partagé (à appeler à l'arrêt du serveur)."""
+    """Closes the shared client (call this on server shutdown)."""
     global _client
     if _client is not None and not _client.is_closed:
         await _client.aclose()
@@ -58,14 +57,15 @@ async def close_client() -> None:
 
 
 def _current_request_headers() -> Mapping[str, str] | None:
-    """Retourne les en-têtes HTTP de la requête MCP en cours, si disponible.
+    """Returns the HTTP headers of the current MCP request, if available.
 
-    En transport HTTP, le SDK MCP place la requête Starlette dans une ``ContextVar``.
-    En transport stdio (ou hors requête), il n'y a pas de requête : on renvoie None.
+    On HTTP transport, the MCP SDK stashes the Starlette request in a
+    ``ContextVar``. On stdio transport (or outside a request), there is no
+    request: returns None.
     """
     try:
         from mcp.server.lowlevel.server import request_ctx
-    except Exception:  # pragma: no cover - SDK sans ce module
+    except Exception:  # pragma: no cover - SDK without this module
         return None
     try:
         ctx = request_ctx.get()
@@ -76,7 +76,7 @@ def _current_request_headers() -> Mapping[str, str] | None:
 
 
 def api_key_from_request(header_names: tuple[str, ...]) -> str | None:
-    """Lit une clé dans les en-têtes de la requête HTTP courante (service quelconque)."""
+    """Reads a key from the current HTTP request's headers (any service)."""
     headers = _current_request_headers()
     if not headers:
         return None
@@ -88,7 +88,7 @@ def api_key_from_request(header_names: tuple[str, ...]) -> str | None:
 
 
 def _api_key_from_request() -> str | None:
-    """Extrait la clé PRIM d'un en-tête HTTP de la requête courante (Bearer inclus)."""
+    """Extracts the PRIM key from an HTTP header of the current request (Bearer included)."""
     key = api_key_from_request(API_KEY_HEADERS)
     if key:
         return key
@@ -102,9 +102,9 @@ def _api_key_from_request() -> str | None:
 
 
 def resolve_api_key() -> str:
-    """Clé PRIM à utiliser : en-tête de la requête en priorité, sinon variable d'env.
+    """PRIM key to use: request header first, then env var fallback.
 
-    Lève ``PrimError`` avec un message d'aide si aucune clé n'est disponible.
+    Raises ``PrimError`` with a helpful message if no key is available.
     """
     key = _api_key_from_request()
     if not key:
@@ -112,9 +112,9 @@ def resolve_api_key() -> str:
         key = env_key or None
     if not key:
         raise PrimError(
-            "Aucune clé PRIM fournie. Envoyez votre jeton dans l'en-tête HTTP "
-            "'X-PRIM-Api-Key' (ou 'apikey', ou 'Authorization: Bearer <jeton>'). "
-            "Créez un jeton gratuit sur https://prim.iledefrance-mobilites.fr."
+            "No PRIM key was provided. Send your token in the 'X-PRIM-Api-Key' "
+            "HTTP header (or 'apikey', or 'Authorization: Bearer <token>'). "
+            "Get a free token at https://prim.iledefrance-mobilites.fr."
         )
     return key
 
@@ -123,26 +123,24 @@ def _explain_status(exc: httpx.HTTPStatusError, source: str) -> PrimError:
     status = exc.response.status_code
     if status in (401, 403):
         if "PRIM" in source or "Navitia" in source or "SIRI" in source:
-            detail = "Vérifiez la clé PRIM ('X-PRIM-Api-Key' ou la variable PRIM_API_KEY)."
+            detail = "Check the PRIM key ('X-PRIM-Api-Key' header or the PRIM_API_KEY variable)."
         else:
-            detail = "Vérifiez la clé API fournie pour ce service."
-        return PrimError(
-            f"{source} : authentification refusée (HTTP {status}). {detail}"
-        )
+            detail = "Check the API key provided for this service."
+        return PrimError(f"{source}: authentication refused (HTTP {status}). {detail}")
     if status == 404:
-        return PrimError(f"{source} : ressource introuvable (HTTP 404). Vérifiez les paramètres.")
+        return PrimError(f"{source}: resource not found (HTTP 404). Check the parameters.")
     if status == 429:
         hint = (
-            " Sur PRIM, vous pouvez demander une augmentation de quota."
+            " On PRIM, you can request a quota increase."
             if "PRIM" in source or "Navitia" in source or "SIRI" in source
-            else " Réessayez dans quelques instants."
+            else " Please retry in a moment."
         )
-        return PrimError(f"{source} : trop de requêtes (HTTP 429).{hint}")
+        return PrimError(f"{source}: too many requests (HTTP 429).{hint}")
     if status >= 500:
-        return PrimError(f"{source} : le service distant est indisponible (HTTP {status}).")
-    # Autres 4xx : on tente d'extraire un message d'erreur du corps.
+        return PrimError(f"{source}: the upstream service is unavailable (HTTP {status}).")
+    # Other 4xx: try to extract an error message from the body.
     detail = _extract_error_detail(exc.response)
-    return PrimError(f"{source} : requête refusée (HTTP {status}){f' — {detail}' if detail else ''}.")
+    return PrimError(f"{source}: request rejected (HTTP {status}){f' — {detail}' if detail else ''}.")
 
 
 def _extract_error_detail(response: httpx.Response) -> str | None:
@@ -171,28 +169,28 @@ async def _request_json(
             response = await client.get(url, params=params, headers=headers)
             response.raise_for_status()
         except httpx.HTTPStatusError as exc:
-            # 429/503 sont souvent transitoires (limite par IP) : on réessaie.
+            # 429/503 are often transient (per-IP rate limit): retry.
             if exc.response.status_code in _RETRY_STATUS and attempt < _MAX_RETRIES:
                 await asyncio.sleep(_RETRY_BACKOFF * (attempt + 1))
                 continue
             raise _explain_status(exc, source) from exc
         except httpx.TimeoutException as exc:
-            raise PrimError(f"{source} : délai d'attente dépassé.") from exc
+            raise PrimError(f"{source}: request timed out.") from exc
         except httpx.HTTPError as exc:
-            raise PrimError(f"{source} : erreur réseau ({exc}).") from exc
+            raise PrimError(f"{source}: network error ({exc}).") from exc
 
         try:
             return response.json()
         except ValueError as exc:
-            raise PrimError(f"{source} : réponse invalide (JSON attendu).") from exc
+            raise PrimError(f"{source}: invalid response (expected JSON).") from exc
 
 
 async def prim_get(path: str, params: dict[str, Any] | None = None, *, source: str = "PRIM") -> Any:
-    """GET authentifié sur la plateforme PRIM (Navitia ou marketplace).
+    """Authenticated GET against the PRIM platform (Navitia or marketplace).
 
-    ``path`` peut être une URL absolue ou un chemin relatif à la base Navitia v2.
-    La clé est résolue par requête (en-tête HTTP du client, sinon variable d'env)
-    et injectée dans le header ``apikey``.
+    ``path`` can be an absolute URL or a path relative to the Navitia v2 base.
+    The key is resolved per request (client HTTP header, then env var) and
+    injected into the ``apikey`` header.
     """
     settings = get_settings()
     api_key = resolve_api_key()
@@ -207,5 +205,5 @@ async def prim_get(path: str, params: dict[str, Any] | None = None, *, source: s
 
 
 async def public_get(url: str, params: dict[str, Any] | None = None, *, source: str) -> Any:
-    """GET non authentifié (utilisé pour le géocodeur BAN, sans clé)."""
+    """Unauthenticated GET (used for the national geocoder, no key needed)."""
     return await _request_json(url, params=params, headers=None, source=source)

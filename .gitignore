@@ -1,4 +1,4 @@
-# Environnement
+# Environment
 .env
 .venv/
 venv/
@@ -11,11 +11,11 @@ __pycache__/
 build/
 dist/
 
-# Outils
+# Tools
 .pytest_cache/
 .ruff_cache/
 .mypy_cache/
-# uv.lock est committé volontairement (builds reproductibles sur Render).
+# uv.lock is committed intentionally (reproducible builds on Render).
 
 # IDE / OS
 .idea/

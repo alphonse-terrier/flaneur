@@ -1,12 +1,12 @@
-"""Météo pour une adresse via l'API OpenWeatherMap.
+"""Weather for a place via the OpenWeatherMap API.
 
-Géocode l'adresse (Base Adresse Nationale) puis interroge OpenWeatherMap :
-- ``/weather`` pour les conditions actuelles ;
-- ``/forecast`` (créneaux de 3 h sur 5 jours) agrégé en prévisions journalières.
+Geocodes the address (national address database) then queries OpenWeatherMap:
+- ``/weather`` for current conditions;
+- ``/forecast`` (3-hour slots over 5 days), aggregated into daily forecasts.
 
-OpenWeatherMap exige une clé : chaque client peut l'envoyer dans l'en-tête
-``X-OpenWeather-Api-Key`` ; sinon on utilise la variable ``OPENWEATHER_API_KEY``.
-Les réponses sont mises en cache quelques minutes pour limiter les appels.
+OpenWeatherMap requires a key: each client can send its own via the
+``X-OpenWeather-Api-Key`` header; otherwise the ``OPENWEATHER_API_KEY``
+variable is used. Responses are cached for a few minutes to limit calls.
 """
 
 from __future__ import annotations
@@ -15,20 +15,20 @@ import time
 from datetime import datetime, timezone
 from typing import Any
 
-from idfm_mcp.config import Settings, get_settings
-from idfm_mcp.geocoding import resolve_place
-from idfm_mcp.models import WeatherCurrent, WeatherDay, WeatherResult
-from idfm_mcp.prim_client import PrimError, api_key_from_request, public_get
+from flaneur.config import Settings, get_settings
+from flaneur.geocoding import resolve_place
+from flaneur.models import WeatherCurrent, WeatherDay, WeatherResult
+from flaneur.prim_client import PrimError, api_key_from_request, public_get
 
-# En-têtes acceptés pour transmettre la clé OpenWeatherMap par requête.
+# Headers accepted for passing the OpenWeatherMap key per request.
 OPENWEATHER_HEADERS = ("x-openweather-api-key", "openweather-api-key")
 
-# Cache mémoire : (lat arrondie, lon arrondie, jours) -> (expiration, (current, daily)).
+# In-memory cache: (rounded lat, rounded lon, days) -> (expiry, (current, daily)).
 _cache: dict[tuple[float, float, int], tuple[float, tuple[Any, list[Any]]]] = {}
 
 
 def clear_cache() -> None:
-    """Vide le cache météo (utile pour les tests)."""
+    """Clears the weather cache (useful for tests)."""
     _cache.clear()
 
 
@@ -38,19 +38,19 @@ def _resolve_key(settings: Settings) -> str:
         key = settings.openweather_api_key.strip() or None
     if not key:
         raise PrimError(
-            "Aucune clé OpenWeatherMap fournie. Envoyez-la dans l'en-tête "
-            "'X-OpenWeather-Api-Key' (ou définissez OPENWEATHER_API_KEY). "
-            "Créez une clé gratuite sur https://openweathermap.org/api."
+            "No OpenWeatherMap key was provided. Send it in the "
+            "'X-OpenWeather-Api-Key' header (or set OPENWEATHER_API_KEY). "
+            "Get a free key at https://openweathermap.org/api."
         )
     return key
 
 
 async def weather(location: str, days: int = 3) -> WeatherResult:
-    """Récupère la météo (actuelle + prévisions) pour une adresse ou un lieu."""
+    """Fetches weather (current + forecast) for an address or place."""
     settings = get_settings()
     key = _resolve_key(settings)
     loc = await resolve_place(location)
-    forecast_days = max(1, min(days, 5))  # OWM (offre gratuite) : 5 jours max
+    forecast_days = max(1, min(days, 5))  # OWM free tier: 5 days max
 
     cache_key = (round(loc.latitude, 2), round(loc.longitude, 2), forecast_days)
     now = time.monotonic()
@@ -64,7 +64,7 @@ async def weather(location: str, days: int = 3) -> WeatherResult:
         "lon": loc.longitude,
         "appid": key,
         "units": "metric",
-        "lang": "fr",
+        "lang": "en",
     }
     current_data = await public_get(
         f"{settings.openweather_base}/weather", common, source="OpenWeatherMap"

@@ -1,6 +1,6 @@
-"""Tests du parsing de géocodage (sans appel réseau)."""
+"""Geocoding parsing tests (no network calls)."""
 
-from idfm_mcp.geocoding import _parse_ban_feature, _parse_lonlat, _parse_navitia_place
+from flaneur.geocoding import _parse_geocoder_feature, _parse_lonlat, _parse_navitia_place
 
 
 def test_parse_lonlat_valid():
@@ -12,11 +12,11 @@ def test_parse_lonlat_valid():
 
 
 def test_parse_lonlat_invalid():
-    assert _parse_lonlat("Tour Eiffel") is None
+    assert _parse_lonlat("Eiffel Tower") is None
     assert _parse_lonlat("2.3378,48.8606") is None
 
 
-def test_parse_ban_feature():
+def test_parse_geocoder_feature():
     data = {
         "type": "FeatureCollection",
         "features": [
@@ -31,7 +31,7 @@ def test_parse_ban_feature():
             }
         ],
     }
-    loc = _parse_ban_feature(data)
+    loc = _parse_geocoder_feature(data)
     assert loc is not None
     assert loc.longitude == 2.062821
     assert loc.latitude == 49.031624
@@ -40,8 +40,8 @@ def test_parse_ban_feature():
     assert loc.lonlat == "2.062821;49.031624"
 
 
-def test_parse_ban_feature_empty():
-    assert _parse_ban_feature({"features": []}) is None
+def test_parse_geocoder_feature_empty():
+    assert _parse_geocoder_feature({"features": []}) is None
 
 
 def test_parse_navitia_place():

@@ -1,8 +1,8 @@
-"""Tests du résumé d'itinéraires et du rattachement des perturbations."""
+"""Tests for journey summarization and disruption attachment."""
 
-from idfm_mcp.journeys import _index_disruptions, _summarize_journey, _to_iso
+from flaneur.journeys import _index_disruptions, _summarize_journey, _to_iso
 
-# Réponse /journeys minimale mais réaliste, avec une perturbation rattachée à une section.
+# Minimal but realistic /journeys response, with a disruption attached to one section.
 SAMPLE_PAYLOAD = {
     "journeys": [
         {
@@ -17,7 +17,7 @@ SAMPLE_PAYLOAD = {
                     "type": "street_network",
                     "mode": "walking",
                     "duration": 300,
-                    "from": {"name": "Départ"},
+                    "from": {"name": "Start"},
                     "to": {"name": "Bercy"},
                     "departure_date_time": "20260718T120500",
                     "arrival_date_time": "20260718T121000",
@@ -43,11 +43,11 @@ SAMPLE_PAYLOAD = {
     "disruptions": [
         {
             "id": "disrupt-1",
-            "cause": "travaux",
+            "cause": "roadworks",
             "status": "active",
-            "severity": {"name": "perturbée", "effect": "SIGNIFICANT_DELAYS"},
+            "severity": {"name": "disrupted", "effect": "SIGNIFICANT_DELAYS"},
             "application_periods": [{"begin": "20260718T000000", "end": "20260718T235900"}],
-            "messages": [{"text": "<p>Travaux sur la ligne 6.</p>"}],
+            "messages": [{"text": "<p>Roadworks on line 6.</p>"}],
             "impacted_objects": [{"pt_object": {"name": "6", "embedded_type": "line"}}],
         }
     ],
@@ -64,9 +64,9 @@ def test_index_disruptions():
     index = _index_disruptions(SAMPLE_PAYLOAD)
     assert "disrupt-1" in index
     disruption = index["disrupt-1"]
-    assert disruption.cause == "travaux"
+    assert disruption.cause == "roadworks"
     assert disruption.effect == "SIGNIFICANT_DELAYS"
-    assert disruption.message == "Travaux sur la ligne 6."  # HTML nettoyé
+    assert disruption.message == "Roadworks on line 6."  # HTML cleaned up
     assert disruption.impacted_objects == ["6"]
 
 
@@ -80,7 +80,7 @@ def test_summarize_journey_attaches_disruptions():
     assert journey.status == "SIGNIFICANT_DELAYS"
     assert journey.has_disruptions is True
 
-    # 2 sections : marche puis métro
+    # 2 sections: walking then metro.
     assert len(journey.sections) == 2
     walk, metro = journey.sections
     assert walk.mode == "street_network"
@@ -89,10 +89,10 @@ def test_summarize_journey_attaches_disruptions():
     assert metro.direction == "Charles de Gaulle — Étoile"
     assert "Metro 6" in metro.label
 
-    # La perturbation est bien rattachée à la section métro, pas à la marche.
+    # The disruption is attached to the metro leg, not the walking leg.
     assert not walk.disruptions
     assert len(metro.disruptions) == 1
-    assert metro.disruptions[0].cause == "travaux"
+    assert metro.disruptions[0].cause == "roadworks"
 
 
 def test_summarize_journey_no_disruptions():

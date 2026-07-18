@@ -1,138 +1,141 @@
-# idfm-mcp
+# Flâneur
 
-Serveur **MCP** (Model Context Protocol) pour le calcul d'itinéraires en **transports
-en commun d'Île-de-France**, avec **étude des impacts travaux / incidents**, basé sur
-l'**API PRIM** d'Île-de-France Mobilités.
+An **MCP** (Model Context Protocol) server for **Île-de-France mobility**: it plans
+public-transit **journeys** with real-time **roadworks & incident** impact, and rounds
+it out with real-time next departures, **cycling routes**, and **weather** — built on
+Île-de-France Mobilités' **PRIM API**.
 
-À partir d'une adresse de départ et d'une adresse d'arrivée, le serveur géocode les
-lieux, calcule les meilleurs itinéraires en temps réel et remonte les perturbations
-affectant chaque étape du trajet.
+Given a start and end address, the server geocodes the places, computes the best
+real-time journeys, and surfaces the disruptions affecting each leg of the trip.
 
-## Fonctionnalités (outils MCP)
+## Features (MCP tools)
 
-| Outil | Description |
+| Tool | Description |
 |---|---|
-| `geocode_address(query)` | Convertit une adresse ou un nom de lieu en coordonnées. |
-| `plan_journey(origin, destination, when?, arrive_by?, max_journeys?)` | Itinéraire(s) complet(s) en temps réel, avec les perturbations rattachées à chaque étape. |
-| `line_traffic(line?)` | Info trafic (travaux/incidents) : globale ou pour une ligne donnée. |
-| `next_departures(stop, limit?)` | Prochains passages temps réel à un arrêt. |
-| `bike_route(origin, destination, profile?)` | Itinéraire à vélo (durée + distance) via BRouter. |
-| `weather(location, days?)` | Météo actuelle + prévisions journalières pour une adresse (OpenWeatherMap). |
+| `geocode_address(query)` | Converts an address or place name into coordinates. |
+| `plan_journey(origin, destination, when?, arrive_by?, max_journeys?)` | Full real-time journey(s), with disruptions attached to each leg. |
+| `line_traffic(line?)` | Traffic info (roadworks/incidents): network-wide or for a given line. |
+| `next_departures(stop, limit?)` | Real-time next departures at a stop. |
+| `bike_route(origin, destination, profile?)` | Cycling route (duration + distance) via BRouter. |
+| `weather(location, days?)` | Current weather + daily forecast for an address (OpenWeatherMap). |
 
-`origin` / `destination` acceptent une **adresse** (« 29 rue de Rivoli, Paris »), un
-**nom d'arrêt** (« Châtelet ») ou des **coordonnées** `longitude;latitude`.
+`origin` / `destination` accept an **address** ("29 rue de Rivoli, Paris"), a
+**stop name** ("Châtelet"), or **coordinates** in `longitude;latitude` format.
 
 ## Architecture
 
 ```
-src/idfm_mcp/
+src/flaneur/
 ├── config.py        # Configuration (PRIM_API_KEY, URLs, timeouts)
-├── prim_client.py   # Client httpx partagé (header apikey, gestion d'erreurs)
-├── geocoding.py     # Adresse → coordonnées (BAN/Géoplateforme + Navitia /places)
-├── journeys.py      # /journeys + résumé enrichi des perturbations
-├── disruptions.py   # Info trafic (disruptions_bulk / line_reports)
-├── departures.py    # Prochains passages (SIRI stop-monitoring)
-├── bike.py          # Itinéraire vélo (BRouter)
-├── weather.py       # Météo (OpenWeatherMap)
-├── models.py        # Modèles Pydantic des sorties
-└── server.py        # Serveur FastMCP + enregistrement des outils
+├── prim_client.py   # Shared httpx client (apikey header, error handling)
+├── geocoding.py      # Address → coordinates (national geocoder + Navitia /places)
+├── journeys.py       # /journeys + disruption-enriched summary
+├── disruptions.py    # Traffic info (disruptions_bulk / line_reports)
+├── departures.py     # Next departures (SIRI stop-monitoring)
+├── bike.py           # Cycling route (BRouter)
+├── weather.py        # Weather (OpenWeatherMap)
+├── models.py         # Pydantic models for tool outputs
+└── server.py         # FastMCP server + tool registration
 ```
 
-Sources de données :
+Data sources:
 - **Navitia** via PRIM (`/journeys`, `/places`, `/line_reports`, `disruptions_bulk`) —
-  header `apikey`.
-- **SIRI Lite** via PRIM (`stop-monitoring`) — header `apikey`.
-- **Géocodeur national** (Base Adresse Nationale via Géoplateforme) — sans clé.
-- **BRouter** (routeur cyclable open source) pour le vélo — sans clé. PRIM ne calcule
-  pas d'itinéraire vélo (sa couverture Navitia ne route que la marche).
-- **OpenWeatherMap** pour la météo (réponses mises en cache ~10 min). Clé requise :
-  en-tête `X-OpenWeather-Api-Key` par requête, ou repli `OPENWEATHER_API_KEY`.
+  `apikey` header.
+- **SIRI Lite** via PRIM (`stop-monitoring`) — `apikey` header.
+- **National geocoder** (French national address database via Géoplateforme) — no key.
+- **BRouter** (open-source cycling router) for cycling — no key. PRIM can't compute
+  cycling routes (its Navitia coverage only routes walking).
+- **OpenWeatherMap** for weather (responses cached ~10 min). Key required: per-request
+  `X-OpenWeather-Api-Key` header, or `OPENWEATHER_API_KEY` fallback.
 
-## Prérequis
+## Requirements
 
 - Python ≥ 3.10.
-- Une **clé API PRIM** gratuite : créez un compte sur
-  <https://prim.iledefrance-mobilites.fr>, puis générez un jeton sous
-  *Mon compte → Mes jetons d'authentification*.
+- A free **PRIM API key**: create an account at
+  <https://prim.iledefrance-mobilites.fr>, then generate a token under
+  *My account → Authentication tokens*.
 
-## Authentification — une clé par utilisateur
+## Authentication — one key per user
 
-Le serveur est **multi-utilisateurs** : chaque client fournit **sa propre clé PRIM**,
-transmise par requête dans un **en-tête HTTP**. La clé ne transite jamais dans la
-conversation du LLM et n'est jamais stockée par le serveur.
+The server is **multi-user**: each client supplies **its own PRIM key**, sent per
+request in an **HTTP header**. The key never flows through the LLM's conversation and
+is never stored by the server.
 
-En-têtes acceptés (par ordre de priorité) :
+Accepted headers (in priority order):
 
-| En-tête | Exemple |
+| Header | Example |
 |---|---|
-| `X-PRIM-Api-Key` | `X-PRIM-Api-Key: <votre_jeton>` |
-| `apikey` | `apikey: <votre_jeton>` |
-| `Authorization` (Bearer) | `Authorization: Bearer <votre_jeton>` |
+| `X-PRIM-Api-Key` | `X-PRIM-Api-Key: <your_token>` |
+| `apikey` | `apikey: <your_token>` |
+| `Authorization` (Bearer) | `Authorization: Bearer <your_token>` |
 
-Repli : si aucun en-tête n'est fourni, le serveur utilise la variable d'environnement
-`PRIM_API_KEY` si elle est définie (pratique en local ou pour une clé par défaut).
-Sur un déploiement public partagé, laissez `PRIM_API_KEY` vide pour forcer chaque
-utilisateur à apporter sa clé.
+Fallback: if no header is provided, the server uses the `PRIM_API_KEY` environment
+variable if set (handy locally, or as a default key). On a shared public deployment,
+leave `PRIM_API_KEY` empty to require every user to bring their own key.
 
-> ⚠️ Déployez toujours derrière **HTTPS** (Render le fait par défaut) pour que la clé
-> soit chiffrée en transit.
+The `weather` tool follows the same model with an `X-OpenWeather-Api-Key` header
+(fallback: `OPENWEATHER_API_KEY`).
 
-## Installation & lancement local
+> ⚠️ Always deploy behind **HTTPS** (Render does by default) so the key is encrypted
+> in transit.
+
+## Local setup & run
 
 ```bash
-# 1. Dépendances (avec uv, recommandé)
+# 1. Dependencies (with uv, recommended)
 uv sync
-# ... ou avec pip
+# ... or with pip
 pip install -e ".[dev]"
 
 # 2. Configuration
 cp .env.example .env
-# éditez .env et renseignez PRIM_API_KEY
+# edit .env and fill in PRIM_API_KEY (and optionally OPENWEATHER_API_KEY)
 
-# 3. Lancement (transport HTTP, écoute sur http://localhost:8000/mcp)
-python -m idfm_mcp.server
+# 3. Run (HTTP transport, listens on http://localhost:8000/mcp)
+python -m flaneur.server
 ```
 
-### Test avec l'inspecteur MCP
+### Testing with the MCP inspector
 
 ```bash
-# Interface web pour appeler les outils manuellement
-uv run mcp dev src/idfm_mcp/server.py
-# ou
+# Web UI to call tools manually
+uv run mcp dev src/flaneur/server.py
+# or
 npx @modelcontextprotocol/inspector
 ```
 
-Exemples d'appels :
+Example calls:
 - `geocode_address("29 rue de Rivoli, Paris")`
-- `plan_journey("Tour Eiffel, Paris", "Château de Vincennes")`
-- `line_traffic("14")` puis `line_traffic()`
+- `plan_journey("Eiffel Tower, Paris", "Château de Vincennes")`
+- `line_traffic("14")` then `line_traffic()`
 - `next_departures("Châtelet")`
-- `bike_route("Bastille, Paris", "La Défense")` → ~12 km, ~37 min à vélo
-- `weather("Tour Eiffel, Paris")` → conditions actuelles + prévisions
+- `bike_route("Bastille, Paris", "La Défense")` → ~12 km, ~37 min by bike
+- `weather("Eiffel Tower, Paris")` → current conditions + forecast
 
-## Déploiement sur Render
+## Deploying on Render
 
-Le dépôt contient un blueprint `render.yaml`. Sur Render :
+The repo includes a `render.yaml` blueprint. On Render:
 
-1. **New → Blueprint**, pointez sur ce dépôt.
-2. Render crée un *web service* Python qui lance `python -m idfm_mcp.server`
-   (écoute sur `0.0.0.0:$PORT`).
-3. Laissez `PRIM_API_KEY` vide pour un serveur multi-utilisateurs (chaque client
-   apporte sa clé), ou renseignez un secret pour une clé de repli par défaut.
-4. Une fois déployé, l'endpoint MCP est exposé sur `https://<app>.onrender.com/mcp`.
+1. **New → Blueprint**, point it at this repo.
+2. Render creates a Python web service that runs `uv run flaneur`
+   (listens on `0.0.0.0:$PORT`).
+3. Leave `PRIM_API_KEY` (and `OPENWEATHER_API_KEY`) empty for a multi-user server
+   (each client brings its own key), or set a secret for a default fallback key.
+4. Once deployed, the MCP endpoint is exposed at `https://<app>.onrender.com/mcp`.
 
-### Brancher un client MCP
+### Connecting an MCP client
 
-Chaque utilisateur configure le serveur distant avec **sa propre clé PRIM** dans les
-en-têtes :
+Each user configures the remote server with **their own PRIM key** (and, if using
+`weather`, their own OpenWeatherMap key) in the headers:
 
 ```json
 {
   "mcpServers": {
-    "idfm": {
+    "flaneur": {
       "url": "https://<app>.onrender.com/mcp",
       "headers": {
-        "X-PRIM-Api-Key": "VOTRE_JETON_PRIM"
+        "X-PRIM-Api-Key": "YOUR_PRIM_TOKEN",
+        "X-OpenWeather-Api-Key": "YOUR_OPENWEATHER_KEY"
       }
     }
   }
@@ -142,9 +145,9 @@ en-têtes :
 ## Tests
 
 ```bash
-uv run pytest        # tests unitaires (parsing, sans appel réseau réel)
+uv run pytest        # unit tests (parsing, no real network calls)
 ```
 
-## Licence
+## License
 
 MIT.

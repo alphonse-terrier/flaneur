@@ -1,15 +1,19 @@
 services:
   - type: web
-    name: idfm-mcp
+    name: flaneur
     runtime: python
     plan: free
-    buildCommand: pip install .
-    startCommand: python -m idfm_mcp.server
+    buildCommand: pip install uv && uv sync --frozen
+    startCommand: uv run flaneur
     healthCheckPath: /healthz
     envVars:
-      # Optionnel : clé de repli côté serveur. En multi-utilisateurs, chaque
-      # client envoie SA clé via l'en-tête 'X-PRIM-Api-Key' — laissez ceci vide.
+      # Optional: server-side fallback key. In the multi-user model, each
+      # client sends its own key via the 'X-PRIM-Api-Key' header — leave empty.
       - key: PRIM_API_KEY
+        sync: false
+      # Optional: server-side fallback key for weather. Each client can send
+      # its own via the 'X-OpenWeather-Api-Key' header instead.
+      - key: OPENWEATHER_API_KEY
         sync: false
       - key: PYTHON_VERSION
         value: "3.12"
