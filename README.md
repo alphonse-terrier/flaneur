@@ -33,8 +33,11 @@ It ships as **two complementary pieces**:
   tells you exactly when to leave, and can plan every journey *between* consecutive
   meetings — flagging any two that are too close together to travel between. No
   copy-pasting addresses.
-- **Multi-source fusion.** Transit + cycling + weather + disruptions combined into one
-  recommendation: *"leave at 8:10 by bike — it's sunny and your line is disrupted."*
+- **Weather-aware mode choice.** It won't send you cycling into the rain. Flâneur
+  checks the forecast *along your route*, and in `auto` mode switches you off the bike
+  when the weather (or a disruption) turns against it — *"leave at 8:10 by metro:
+  it'll be pouring by 8:30, and line 8 is delayed anyway."* One recommendation from
+  transit + cycling + weather + disruptions, not four tabs to reconcile yourself.
 - **Bring-your-own-key, multi-user.** Each user passes their own API key per request in
   an HTTP header; nothing is stored, so one deployment safely serves everyone.
 - **Proactive, not just reactive.** Wire it to a **scheduled task** for a morning
