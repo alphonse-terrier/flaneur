@@ -12,8 +12,9 @@ variable is used. Responses are cached for a few minutes to limit calls.
 from __future__ import annotations
 
 import time
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from flaneur.config import Settings, get_settings
 from flaneur.geocoding import resolve_place
@@ -171,7 +172,8 @@ def _closest_to_noon(group: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def _iso(dt: Any) -> str | None:
+    """OpenWeatherMap `dt` (Unix seconds) → tz-aware ISO 8601 in Europe/Paris."""
     try:
-        return datetime.fromtimestamp(int(dt), tz=timezone.utc).isoformat()
+        return datetime.fromtimestamp(int(dt), tz=ZoneInfo("Europe/Paris")).isoformat()
     except (TypeError, ValueError):
         return None

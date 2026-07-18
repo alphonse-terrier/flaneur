@@ -92,6 +92,19 @@ async def test_plan_journey_arrive_by_passthrough():
 
 
 @respx.mock
+async def test_plan_journey_accessibility_params():
+    route = respx.get(url__startswith=_JOURNEYS_URL).mock(
+        return_value=httpx.Response(200, json=PAYLOAD)
+    )
+    await close_client()
+    await plan_journey("2.37;48.84", "2.29;48.85", wheelchair=True, max_transfers=0)
+    q = route.calls[0].request.url.params
+    assert q["wheelchair"] == "true"
+    assert q["max_nb_transfers"] == "0"
+    await close_client()
+
+
+@respx.mock
 async def test_plan_journey_no_results_returns_note():
     respx.get(url__startswith=_JOURNEYS_URL).mock(
         return_value=httpx.Response(200, json={"journeys": []})

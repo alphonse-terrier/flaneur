@@ -99,9 +99,11 @@ async def line_disruptions(line: str) -> list[Disruption]:
     )
     all_disruptions = _extract_disruptions(payload)
     needle = line.strip().lower()
-    filtered = [
+    # Return only disruptions that actually impact the requested line. If none
+    # match, return an empty list ("no disruptions on line X") rather than the
+    # whole network's disruptions, which would be misleading.
+    return [
         d
         for d in all_disruptions
         if any(needle == obj.lower() or needle in obj.lower() for obj in d.impacted_objects)
     ]
-    return filtered or all_disruptions

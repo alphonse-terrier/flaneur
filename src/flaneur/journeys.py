@@ -4,11 +4,16 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from flaneur.disruptions import parse_disruption
 from flaneur.geocoding import resolve_place
 from flaneur.models import Disruption, Journey, JourneyResult, JourneySection
 from flaneur.prim_client import PrimError, prim_get
+
+# Navitia returns datetimes in the coverage's local time (Europe/Paris) with no
+# timezone marker. We attach it so every timestamp is unambiguous for clients.
+_PARIS = ZoneInfo("Europe/Paris")
 
 # Human-readable labels for Navitia section types.
 _MODE_LABELS = {
@@ -22,11 +27,11 @@ _MODE_LABELS = {
 
 
 def _to_iso(navitia_dt: str | None) -> str | None:
-    """Converts a Navitia datetime (YYYYMMDDTHHMMSS) to ISO 8601."""
+    """Converts a Navitia datetime (YYYYMMDDTHHMMSS) to tz-aware ISO 8601 (Europe/Paris)."""
     if not navitia_dt:
         return None
     try:
-        return datetime.strptime(navitia_dt, "%Y%m%dT%H%M%S").isoformat()
+        return datetime.strptime(navitia_dt, "%Y%m%dT%H%M%S").replace(tzinfo=_PARIS).isoformat()
     except ValueError:
         return navitia_dt
 
@@ -126,12 +131,16 @@ async def plan_journey(
     when: str | None = None,
     arrive_by: bool = False,
     max_journeys: int = 3,
+    wheelchair: bool = False,
+    max_transfers: int | None = None,
 ) -> JourneyResult:
     """Computes journeys between two places, with real-time disruptions.
 
     ``origin`` / ``destination``: address, stop name, or ``lon;lat`` coordinates.
     ``when``: ISO 8601 date/time (default = now).
     ``arrive_by``: if True, ``when`` is the desired arrival time.
+    ``wheelchair``: if True, restrict to wheelchair-accessible journeys.
+    ``max_transfers``: cap the number of transfers, if set.
     """
     origin_loc = await resolve_place(origin)
     destination_loc = await resolve_place(destination)
@@ -145,6 +154,10 @@ async def plan_journey(
     }
     if when:
         params["datetime"] = _from_iso_to_navitia(when)
+    if wheelchair:
+        params["wheelchair"] = "true"
+    if max_transfers is not None:
+        params["max_nb_transfers"] = max(0, max_transfers)
 
     payload = await prim_get("journeys", params, source="Navitia /journeys")
 

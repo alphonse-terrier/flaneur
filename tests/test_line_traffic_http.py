@@ -59,3 +59,15 @@ async def test_line_disruptions_filters_by_label():
     assert len(result) == 1
     assert "6" in result[0].impacted_objects
     await close_client()
+
+
+@respx.mock
+async def test_line_disruptions_no_match_returns_empty():
+    # A line with no matching disruption returns [] — not the whole network's list.
+    respx.get(url__startswith=_LINE_REPORTS_URL).mock(
+        return_value=httpx.Response(200, json=DISRUPTIONS)
+    )
+    await close_client()
+    result = await line_disruptions("14")
+    assert result == []
+    await close_client()

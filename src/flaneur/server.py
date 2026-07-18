@@ -94,6 +94,8 @@ async def plan_journey(
     when: str | None = None,
     arrive_by: bool = False,
     max_journeys: int = 3,
+    wheelchair: bool = False,
+    max_transfers: int | None = None,
 ) -> JourneyResult:
     """Computes the best public-transit journey(s) between two places.
 
@@ -107,6 +109,8 @@ async def plan_journey(
         when: Date/time in ISO 8601 format (e.g. `2026-07-18T08:30:00`). Default: now.
         arrive_by: If true, `when` is the desired arrival time (instead of departure).
         max_journeys: Maximum number of proposed journeys (1 to 5).
+        wheelchair: If true, restrict to wheelchair-accessible journeys.
+        max_transfers: Cap the number of transfers, if set (e.g. 0 for direct only).
 
     Returns:
         The resolved places and the list of detailed journeys with disruptions.
@@ -117,6 +121,8 @@ async def plan_journey(
         when=when,
         arrive_by=arrive_by,
         max_journeys=max_journeys,
+        wheelchair=wheelchair,
+        max_transfers=max_transfers,
     )
 
 

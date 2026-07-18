@@ -55,7 +55,8 @@ SAMPLE_PAYLOAD = {
 
 
 def test_to_iso():
-    assert _to_iso("20260718T120500") == "2026-07-18T12:05:00"
+    # Navitia local time is stamped as Europe/Paris (tz-aware): summer = +02:00.
+    assert _to_iso("20260718T120500") == "2026-07-18T12:05:00+02:00"
     assert _to_iso(None) is None
     assert _to_iso("garbage") == "garbage"
 
