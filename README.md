@@ -5,7 +5,7 @@
 ![MCP](https://img.shields.io/badge/protocol-MCP-6E56CF)
 ![Hackathon](https://img.shields.io/badge/Mistral-Vibe%20hackathon-FF7000)
 
-> Built for the **Mistral "Vibe" hackathon.**
+> Built for the **Mistral "Vibe" hackathon.** · 🌐 **Live:** [`idfm-mcp.onrender.com/mcp`](https://idfm-mcp.onrender.com/mcp) · [health](https://idfm-mcp.onrender.com/healthz)
 
 Flâneur turns any AI assistant into a **mobility copilot for Île-de-France**. Give it
 two addresses and it plans the best public-transit route **in real time** — folding in
@@ -126,14 +126,17 @@ the same logic is expressed directly as a scheduled-task prompt (see
 
 ## 🚀 Try it
 
-**Connect the hosted server to an MCP client** (Le Chat, Claude, …) — point it at your
-deployment's `/mcp` endpoint and pass your keys as headers:
+> **Live endpoint:** `https://idfm-mcp.onrender.com/mcp` — health check:
+> [`/healthz`](https://idfm-mcp.onrender.com/healthz)
+
+**Connect the hosted server to an MCP client** (Le Chat, Claude, …) — point it at the
+live `/mcp` endpoint and pass your keys as headers:
 
 ```json
 {
   "mcpServers": {
     "flaneur": {
-      "url": "https://<your-app>.onrender.com/mcp",
+      "url": "https://idfm-mcp.onrender.com/mcp",
       "headers": {
         "X-PRIM-Api-Key": "YOUR_PRIM_TOKEN",
         "X-OpenWeather-Api-Key": "YOUR_OPENWEATHER_KEY"
@@ -142,6 +145,9 @@ deployment's `/mcp` endpoint and pass your keys as headers:
   }
 }
 ```
+
+> ℹ️ It's a free Render instance, so the very first call after a quiet spell may take
+> ~30-60 s to wake up, then it's snappy.
 
 Then ask: *"Best way from the Eiffel Tower to Château de Vincennes right now?"* or
 *"How long to bike from Bastille to La Défense, and what's the weather?"*
