@@ -43,6 +43,46 @@ events to plan inter-meeting journeys with realistic, on-time arrival.
   transport modes (bike if the leg is short enough and weather permits).
 - Returns the recommended departure time to arrive on time.
 
+## 🧭 How to run this skill
+
+This skill is a **procedure plus a reference implementation**, not a program that
+executes on its own. Follow the steps below by calling the real tools available in
+your environment:
+
+- **Flâneur MCP tools** — `geocode_address`, `plan_journey`, `bike_route`,
+  `weather`, `next_departures`, `line_traffic`.
+- **Your connected Google Calendar tools** — for listing and creating events. The
+  code below writes `tools.google_calendar.list_events(...)` /
+  `create_event(...)` as placeholders; map them to whatever the connected Calendar
+  MCP actually exposes (names and parameters like `timeMin`/`timeMax` vs
+  `startTime`/`endTime` vary).
+
+The TypeScript blocks are the **authoritative algorithm** — timing math, unit
+conversions, thresholds, and edge cases. Reproduce that logic faithfully; don't
+re-derive it loosely.
+
+### Procedure at a glance
+
+1. **Geocode** `origin` and `destination` once; reuse the returned coordinates
+   everywhere (never re-pass raw address strings — it re-geocodes and can drift).
+2. **Resolve the target time.** If `arrive_by`, subtract `buffer_minutes` from
+   `when` to get the effective target arrival; otherwise the target is the
+   departure time (`when` or now).
+3. **Pick the mode.** For `auto`: get the bike duration first, then choose bike if
+   it's ≤ 25 min and weather has no high-severity alert, else public transport.
+4. **Compute the route** for the chosen mode:
+   - `public_transport` → `plan_journey` (pass `arrive_by`/`when` straight through;
+     PRIM does the arrival math and returns real departure/arrival times).
+   - `bike` → `bike_route`; **you** own the timing: if `arrive_by`, set
+     `departure = target_arrival − duration`; else `departure = target`,
+     `arrival = departure + duration`.
+   - `walk` → estimate distance/duration (§3), then the same timing rule as bike.
+5. **Check weather** for bike/walk (departure + arrival, plus midpoint if the leg
+   is > 12 min), scoping the forecast to the target date.
+6. **Check the calendar**: appointments near the arrival time, and conflicts
+   during the journey itself.
+7. **Assemble recommendations** and render the output format.
+
 ## 📥 Inputs
 
 ### Required parameters
@@ -335,6 +375,30 @@ const distanceKm = straightLineKm * 1.3;
 const durationMinutes = Math.round((distanceKm / 5) * 60); // 5 km/h walking pace
 ```
 
+**Timing for bike/walk — `arrive_by` must work here too.** `plan_journey`
+computes departure/arrival internally, but `bike_route` and the walking
+estimate only return a *duration*. This skill exists to make you arrive on
+time, so for these modes **you** must derive the times from `duration` and
+the (already buffer-adjusted) `targetTime`:
+
+```ts
+function scheduleFixedDuration(durationMinutes: number, targetTime: string, arriveBy: boolean) {
+  const target = new Date(targetTime);
+  if (arriveBy) {
+    // targetTime already had the buffer subtracted in step 2.
+    const departure = new Date(target.getTime() - durationMinutes * 60000);
+    return { departure_time: departure.toISOString(), arrival_time: target.toISOString() };
+  }
+  const arrival = new Date(target.getTime() + durationMinutes * 60000);
+  return { departure_time: target.toISOString(), arrival_time: arrival.toISOString() };
+}
+```
+
+A `mode: "walk"`/`"bike"` request with `arrive_by: true` and
+`when: "2026-07-18T14:00:00"` must therefore return a departure of
+`14:00 − buffer − duration`, **not** "now". Returning "now" is the single
+most common way this skill silently fails its own purpose.
+
 ### 4. Weather check (bike/walk only, midpoint skipped for short legs)
 
 ```ts
@@ -578,6 +642,157 @@ function ensureOnTimeArrival(
     arrivalTime: new Date(departureDate.getTime() + journeyDuration * 60000).toISOString(),
     isFeasible: true
   };
+}
+
+// Derive departure/arrival for a fixed-duration mode (bike/walk), honoring arrive_by.
+function scheduleFixedDuration(durationMinutes: number, targetTime: string, arriveBy: boolean) {
+  const target = new Date(targetTime); // buffer already applied upstream when arriveBy
+  if (arriveBy) {
+    return {
+      departure_time: new Date(target.getTime() - durationMinutes * 60000).toISOString(),
+      arrival_time: target.toISOString()
+    };
+  }
+  return {
+    departure_time: target.toISOString(),
+    arrival_time: new Date(target.getTime() + durationMinutes * 60000).toISOString()
+  };
+}
+
+// Choose bike vs public transport for mode "auto".
+function selectOptimalMode(bikeDurationMinutes: number, weatherAlerts: any): "bike" | "public_transport" {
+  if (bikeDurationMinutes > 25) return "public_transport"; // too long to be pleasant by bike
+  const alerts = weatherAlerts
+    ? Object.values(weatherAlerts).filter((v: any) => v?.alerts).flatMap((v: any) => v.alerts)
+    : [];
+  if (alerts.some((a: any) => a.severity === "high")) return "public_transport"; // unsafe to cycle
+  return "bike";
+}
+
+// Core single-journey calculation used directly and by the inter-meeting loop.
+async function calculateOptimalJourney(params: {
+  origin: string;
+  destination: string;
+  when?: string | null;
+  arrive_by?: boolean;
+  mode?: string;
+  bike_profile?: string;
+  max_journeys?: number;
+  check_calendar?: boolean;
+  calendar_time_window?: number;
+  buffer_minutes?: number;
+}) {
+  const {
+    origin, destination, when = null, arrive_by = false,
+    mode = "public_transport", bike_profile = "trekking", max_journeys = 3,
+    check_calendar = true, calendar_time_window = 30, buffer_minutes = 5
+  } = params;
+
+  // 1. Geocode once, reuse.
+  const [originGeo, destinationGeo] = await Promise.all([
+    tools.flaneur.geocode_address({ query: origin }),
+    tools.flaneur.geocode_address({ query: destination })
+  ]);
+  const originCoord = `${originGeo.longitude};${originGeo.latitude}`;
+  const destinationCoord = `${destinationGeo.longitude};${destinationGeo.latitude}`;
+
+  // 2. Effective target time (buffer applied when arriving-by).
+  let targetTime = when || (await step(() => new Date().toISOString()));
+  if (arrive_by) {
+    const b = new Date(targetTime);
+    b.setMinutes(b.getMinutes() - (buffer_minutes ?? 5));
+    targetTime = b.toISOString();
+  }
+
+  // 3. Resolve the mode (auto = bike if short & weather permits, else PT).
+  let effectiveMode = mode;
+  const wantsBikeInfo = mode === "bike" || mode === "auto";
+  const bikeResult = wantsBikeInfo
+    ? await tools.flaneur.bike_route({
+        origin: originCoord,
+        destination: destinationCoord,
+        profile: bike_profile === "shortest" ? "trekking" : (bike_profile || "trekking")
+      })
+    : null;
+
+  let autoWeather;
+  if (mode === "auto" && bikeResult) {
+    const sched = scheduleFixedDuration(bikeResult.duration_minutes, targetTime, arrive_by);
+    autoWeather = await checkWeatherForRoute(originGeo, destinationGeo, sched.departure_time, bikeResult.duration_minutes);
+    effectiveMode = selectOptimalMode(bikeResult.duration_minutes, autoWeather);
+  }
+
+  // 4. Build the recommended journey for the chosen mode.
+  let recommended: any;
+  let alternatives: any[] = [];
+
+  if (effectiveMode === "bike") {
+    const sched = scheduleFixedDuration(bikeResult!.duration_minutes, targetTime, arrive_by);
+    recommended = {
+      mode: "bike",
+      ...sched,
+      duration_minutes: bikeResult!.duration_minutes,
+      distance_km: bikeResult!.distance_km,
+      route_summary: `Bike · ${bikeResult!.distance_km} km (${bikeResult!.duration_minutes} min, ${bike_profile})`,
+      weather_alerts: autoWeather ?? await checkWeatherForRoute(originGeo, destinationGeo, sched.departure_time, bikeResult!.duration_minutes)
+    };
+  } else if (effectiveMode === "walk") {
+    const distanceKm = haversineKm(originGeo, destinationGeo) * 1.3; // urban circuity correction
+    const durationMinutes = Math.round((distanceKm / 5) * 60);      // 5 km/h
+    const sched = scheduleFixedDuration(durationMinutes, targetTime, arrive_by);
+    recommended = {
+      mode: "walk",
+      ...sched,
+      duration_minutes: durationMinutes,
+      distance_km: Number(distanceKm.toFixed(2)),
+      route_summary: `Walk · ${distanceKm.toFixed(2)} km (${durationMinutes} min, estimated)`,
+      weather_alerts: await checkWeatherForRoute(originGeo, destinationGeo, sched.departure_time, durationMinutes)
+    };
+  } else {
+    // public_transport: plan_journey owns the arrival math.
+    const result = await tools.flaneur.plan_journey({
+      origin: originCoord,
+      destination: destinationCoord,
+      when: targetTime,
+      arrive_by,
+      max_journeys
+    });
+    if (!result.journeys?.length) throw new Error("No public transport route found");
+    const best = result.journeys[0];
+    recommended = {
+      mode: "public_transport",
+      departure_time: best.departure,
+      arrival_time: best.arrival,
+      duration_minutes: best.duration_minutes,
+      sections: best.sections,
+      status: best.status,
+      has_disruptions: best.has_disruptions,
+      disruptions: (best.sections || []).flatMap((s: any) => s.disruptions || []),
+      route_summary: formatPublicTransportSummary(best)
+    };
+    alternatives = result.journeys.slice(1);
+  }
+
+  // 5. Calendar checks against the resolved arrival/departure.
+  let calendar_alerts, journey_conflicts;
+  if (check_calendar && recommended.arrival_time) {
+    calendar_alerts = await checkCalendarForAppointments(recommended.arrival_time, calendar_time_window);
+    journey_conflicts = await checkJourneyAgainstCalendar(recommended.departure_time, recommended.arrival_time, calendar_time_window);
+  }
+
+  const out: any = {
+    origin: originGeo,
+    destination: destinationGeo,
+    recommended_journey: recommended,
+    alternative_journeys: alternatives,
+    weather_alerts: recommended.weather_alerts,
+    calendar_alerts,
+    journey_conflicts,
+    calculated_at: await step(() => new Date().toISOString()),
+    note: arrive_by ? `${buffer_minutes ?? 5}-minute buffer applied to arrival time` : undefined
+  };
+  out.recommendations = generateRecommendations({ ...recommended, calendar_alerts, journey_conflicts, note: out.note });
+  return out;
 }
 
 async function calculateInterMeetingItineraries(params: {
@@ -959,6 +1174,21 @@ function haversineKm(a: { latitude: number; longitude: number }, b: { latitude: 
   const h = Math.sin(dLat / 2) ** 2 +
     Math.cos(a.latitude * Math.PI / 180) * Math.cos(b.latitude * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
   return R * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
+}
+
+// One-line summary of a public-transport journey: the transit lines taken,
+// plus total walking time.
+function formatPublicTransportSummary(journey: any): string {
+  const sections = journey.sections || [];
+  const transitSteps = sections
+    .filter((s: any) => s.mode === "public_transport")
+    .map((s: any) => `${s.line || "?"}${s.direction ? ` → ${s.direction}` : ""}`.trim());
+  const walkMinutes = sections
+    .filter((s: any) => s.mode === "street_network" || s.mode === "walking")
+    .reduce((sum: number, s: any) => sum + (s.duration_minutes || 0), 0);
+
+  if (transitSteps.length === 0) return "Public transport route";
+  return `Transit: ${transitSteps.join(" → ")}${walkMinutes > 0 ? ` + ${walkMinutes} min walk` : ""}`;
 }
 ```
 
