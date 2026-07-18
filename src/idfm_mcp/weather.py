@@ -7,12 +7,22 @@ marche, vélo et transports selon le temps.
 
 from __future__ import annotations
 
+import time
 from typing import Any
 
 from idfm_mcp.config import get_settings
 from idfm_mcp.geocoding import resolve_place
 from idfm_mcp.models import GeoLocation, WeatherCurrent, WeatherDay, WeatherResult
 from idfm_mcp.prim_client import public_get
+
+# Cache mémoire : (lat arrondie, lon arrondie, jours) -> (expiration, (current, daily)).
+# Arrondi à 2 décimales ≈ maille ~1 km, suffisant pour la météo.
+_cache: dict[tuple[float, float, int], tuple[float, tuple[Any, list[Any]]]] = {}
+
+
+def clear_cache() -> None:
+    """Vide le cache météo (utile pour les tests)."""
+    _cache.clear()
 
 # Codes météo WMO → descriptions en français.
 _WMO_CODES = {
@@ -71,28 +81,42 @@ def _describe(code: Any) -> str | None:
 
 
 async def weather(location: str, days: int = 3) -> WeatherResult:
-    """Récupère la météo (actuelle + prévisions) pour une adresse ou un lieu."""
+    """Récupère la météo (actuelle + prévisions) pour une adresse ou un lieu.
+
+    Les réponses sont mises en cache (par maille ~1 km) pendant quelques minutes
+    pour limiter les appels à Open-Meteo. Si ``OPENMETEO_API_KEY`` est défini, on
+    utilise l'endpoint client dédié (quota propre).
+    """
+    settings = get_settings()
     loc = await resolve_place(location)
     forecast_days = max(1, min(days, 7))
 
-    data = await public_get(
-        get_settings().openmeteo_base,
-        {
-            "latitude": loc.latitude,
-            "longitude": loc.longitude,
-            "current": ",".join(_CURRENT_FIELDS),
-            "daily": ",".join(_DAILY_FIELDS),
-            "timezone": "Europe/Paris",
-            "forecast_days": forecast_days,
-        },
-        source="Open-Meteo",
-    )
+    key = (round(loc.latitude, 2), round(loc.longitude, 2), forecast_days)
+    now = time.monotonic()
+    cached = _cache.get(key)
+    if cached and cached[0] > now:
+        current, daily = cached[1]
+        return WeatherResult(location=loc, current=current, daily=daily)
 
-    return WeatherResult(
-        location=loc,
-        current=_parse_current(data),
-        daily=_parse_daily(data),
-    )
+    params: dict[str, Any] = {
+        "latitude": loc.latitude,
+        "longitude": loc.longitude,
+        "current": ",".join(_CURRENT_FIELDS),
+        "daily": ",".join(_DAILY_FIELDS),
+        "timezone": "Europe/Paris",
+        "forecast_days": forecast_days,
+    }
+    if settings.openmeteo_api_key:
+        base = settings.openmeteo_customer_base
+        params["apikey"] = settings.openmeteo_api_key
+    else:
+        base = settings.openmeteo_base
+
+    data = await public_get(base, params, source="Open-Meteo")
+    current, daily = _parse_current(data), _parse_daily(data)
+    _cache[key] = (now + settings.weather_cache_ttl, (current, daily))
+
+    return WeatherResult(location=loc, current=current, daily=daily)
 
 
 def _parse_current(data: Any) -> WeatherCurrent | None:

@@ -45,7 +45,9 @@ Sources de données :
 - **Géocodeur national** (Base Adresse Nationale via Géoplateforme) — sans clé.
 - **BRouter** (routeur cyclable open source) pour le vélo — sans clé. PRIM ne calcule
   pas d'itinéraire vélo (sa couverture Navitia ne route que la marche).
-- **Open-Meteo** pour la météo — sans clé.
+- **Open-Meteo** pour la météo — sans clé (réponses mises en cache ~10 min).
+  Optionnel : définir `OPENMETEO_API_KEY` bascule sur l'endpoint client dédié
+  (quota propre, évite les 429 dus à l'IP partagée sur Render).
 
 ## Prérequis
 

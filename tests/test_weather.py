@@ -1,6 +1,18 @@
-"""Tests du parsing météo Open-Meteo (sans appel réseau)."""
+"""Tests météo : parsing Open-Meteo, cache mémoire et routage clé API."""
 
-from idfm_mcp.weather import _describe, _parse_current, _parse_daily
+import httpx
+import pytest
+import respx
+
+from idfm_mcp import config
+from idfm_mcp.prim_client import close_client
+from idfm_mcp.weather import (
+    _describe,
+    _parse_current,
+    _parse_daily,
+    clear_cache,
+    weather,
+)
 
 SAMPLE = {
     "current": {
@@ -62,3 +74,56 @@ def test_parse_daily():
 
 def test_parse_daily_empty():
     assert _parse_daily({}) == []
+
+
+@pytest.fixture
+def _fixed_location(monkeypatch):
+    """Évite l'appel réseau du géocodeur : lieu figé."""
+    from idfm_mcp.models import GeoLocation
+
+    async def _fake_resolve(query, prefer_stops=False):
+        return GeoLocation(label="Paris", longitude=2.3522, latitude=48.8566)
+
+    monkeypatch.setattr("idfm_mcp.weather.resolve_place", _fake_resolve)
+
+
+@pytest.fixture(autouse=True)
+def _reset(monkeypatch):
+    clear_cache()
+    # weather.py utilise sa propre référence get_settings : c'est elle qu'on patche.
+    monkeypatch.setattr(
+        "idfm_mcp.weather.get_settings", lambda: config.Settings(_env_file=None)
+    )
+    yield
+    clear_cache()
+
+
+@respx.mock
+async def test_cache_avoids_second_call(_fixed_location):
+    route = respx.get(url__startswith="https://api.open-meteo.com").mock(
+        return_value=httpx.Response(200, json={"current": {"temperature_2m": 20}, "daily": {}})
+    )
+    await close_client()
+    r1 = await weather("Paris")
+    r2 = await weather("Paris")  # servi par le cache
+    assert r1.current.temperature_c == 20
+    assert r2.current.temperature_c == 20
+    assert route.call_count == 1  # un seul appel réseau grâce au cache
+    await close_client()
+
+
+@respx.mock
+async def test_api_key_uses_customer_endpoint(monkeypatch, _fixed_location):
+    monkeypatch.setattr(
+        "idfm_mcp.weather.get_settings",
+        lambda: config.Settings(_env_file=None, openmeteo_api_key="secret-key"),
+    )
+    route = respx.get(url__startswith="https://customer-api.open-meteo.com").mock(
+        return_value=httpx.Response(200, json={"current": {"temperature_2m": 15}, "daily": {}})
+    )
+    await close_client()
+    r = await weather("Paris")
+    assert r.current.temperature_c == 15
+    assert route.called
+    assert "apikey=secret-key" in str(route.calls[0].request.url)
+    await close_client()
