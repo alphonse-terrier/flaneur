@@ -16,6 +16,7 @@ affectant chaque étape du trajet.
 | `plan_journey(origin, destination, when?, arrive_by?, max_journeys?)` | Itinéraire(s) complet(s) en temps réel, avec les perturbations rattachées à chaque étape. |
 | `line_traffic(line?)` | Info trafic (travaux/incidents) : globale ou pour une ligne donnée. |
 | `next_departures(stop, limit?)` | Prochains passages temps réel à un arrêt. |
+| `bike_route(origin, destination, profile?)` | Itinéraire à vélo (durée + distance) via BRouter. |
 
 `origin` / `destination` acceptent une **adresse** (« 29 rue de Rivoli, Paris »), un
 **nom d'arrêt** (« Châtelet ») ou des **coordonnées** `longitude;latitude`.
@@ -30,6 +31,7 @@ src/idfm_mcp/
 ├── journeys.py      # /journeys + résumé enrichi des perturbations
 ├── disruptions.py   # Info trafic (disruptions_bulk / line_reports)
 ├── departures.py    # Prochains passages (SIRI stop-monitoring)
+├── bike.py          # Itinéraire vélo (BRouter)
 ├── models.py        # Modèles Pydantic des sorties
 └── server.py        # Serveur FastMCP + enregistrement des outils
 ```
@@ -39,6 +41,8 @@ Sources de données :
   header `apikey`.
 - **SIRI Lite** via PRIM (`stop-monitoring`) — header `apikey`.
 - **Géocodeur national** (Base Adresse Nationale via Géoplateforme) — sans clé.
+- **BRouter** (routeur cyclable open source) pour le vélo — sans clé. PRIM ne calcule
+  pas d'itinéraire vélo (sa couverture Navitia ne route que la marche).
 
 ## Prérequis
 
@@ -99,6 +103,7 @@ Exemples d'appels :
 - `plan_journey("Tour Eiffel, Paris", "Château de Vincennes")`
 - `line_traffic("14")` puis `line_traffic()`
 - `next_departures("Châtelet")`
+- `bike_route("Bastille, Paris", "La Défense")` → ~12 km, ~37 min à vélo
 
 ## Déploiement sur Render
 

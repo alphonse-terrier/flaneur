@@ -1,10 +1,13 @@
 """Serveur MCP IDFM : itinéraires, perturbations et prochains passages en Île-de-France.
 
-Expose quatre outils construits sur l'API PRIM d'Île-de-France Mobilités :
+Expose cinq outils :
 - ``geocode_address`` : adresse/lieu → coordonnées ;
-- ``plan_journey`` : itinéraire complet avec perturbations temps réel ;
+- ``plan_journey`` : itinéraire complet (transports) avec perturbations temps réel ;
 - ``line_traffic`` : info trafic (travaux/incidents) globale ou par ligne ;
-- ``next_departures`` : prochains passages temps réel à un arrêt.
+- ``next_departures`` : prochains passages temps réel à un arrêt ;
+- ``bike_route`` : itinéraire à vélo (via BRouter — PRIM ne route pas le vélo).
+
+Les quatre premiers s'appuient sur l'API PRIM d'Île-de-France Mobilités.
 """
 
 from __future__ import annotations
@@ -16,12 +19,14 @@ from mcp.server.transport_security import TransportSecuritySettings
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
+from idfm_mcp.bike import bike_route as _bike_route
 from idfm_mcp.config import get_settings
 from idfm_mcp.departures import next_departures as _next_departures
 from idfm_mcp.disruptions import global_disruptions, line_disruptions
 from idfm_mcp.geocoding import resolve_place
 from idfm_mcp.journeys import plan_journey as _plan_journey
 from idfm_mcp.models import (
+    BikeRoute,
     DeparturesResult,
     Disruption,
     GeoLocation,
@@ -51,9 +56,10 @@ mcp = FastMCP(
     instructions=(
         "Serveur d'itinéraires en transports en commun pour l'Île-de-France (Paris et "
         "sa région), basé sur l'API PRIM d'Île-de-France Mobilités. Utilisez "
-        "`plan_journey` pour calculer un trajet entre deux adresses avec l'impact des "
-        "travaux et incidents, `line_traffic` pour l'info trafic d'une ligne, et "
-        "`next_departures` pour les prochains passages à un arrêt."
+        "`plan_journey` pour calculer un trajet en transports en commun entre deux "
+        "adresses avec l'impact des travaux et incidents, `line_traffic` pour l'info "
+        "trafic d'une ligne, `next_departures` pour les prochains passages à un arrêt, "
+        "et `bike_route` pour un itinéraire à vélo (durée et distance)."
     ),
     transport_security=_transport_security(),
 )
@@ -139,6 +145,28 @@ async def next_departures(stop: str, limit: int = 10) -> DeparturesResult:
         L'arrêt résolu et la liste des prochains passages (ligne, destination, heure).
     """
     return await _next_departures(stop, limit=limit)
+
+
+@mcp.tool()
+async def bike_route(
+    origin: str, destination: str, profile: str = "trekking"
+) -> BikeRoute:
+    """Calcule un itinéraire à vélo entre deux lieux (durée et distance).
+
+    Complète `plan_journey` : PRIM ne calcule pas d'itinéraire vélo, donc cet outil
+    s'appuie sur le routeur cyclable BRouter. Utilisez-le pour toute question de type
+    « combien de temps à vélo de A à B ? ».
+
+    Args:
+        origin: Lieu de départ — adresse, nom d'arrêt, ou coordonnées `lon;lat`.
+        destination: Lieu d'arrivée — même formats que `origin`.
+        profile: Profil vélo — `trekking` (équilibré, défaut), `fastbike` (plus rapide),
+            `shortest` (plus court).
+
+    Returns:
+        Les lieux résolus, la distance (km) et la durée estimée à vélo (minutes).
+    """
+    return await _bike_route(origin, destination, profile=profile)
 
 
 def main() -> None:

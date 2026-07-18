@@ -93,6 +93,19 @@ class JourneyResult(BaseModel):
     note: str | None = None
 
 
+class BikeRoute(BaseModel):
+    """Itinéraire à vélo entre deux lieux (routage BRouter, PRIM ne route pas le vélo)."""
+
+    origin: GeoLocation
+    destination: GeoLocation
+    profile: str = Field(description="Profil vélo utilisé (trekking, fastbike, shortest).")
+    distance_km: float
+    duration_minutes: int = Field(
+        description="Durée estimée à vélo (allure du profil, ~18 km/h en trekking)."
+    )
+    note: str | None = None
+
+
 class Departure(BaseModel):
     """Prochain passage à un arrêt (temps réel)."""
 

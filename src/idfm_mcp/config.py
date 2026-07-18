@@ -41,6 +41,8 @@ class Settings(BaseSettings):
     # Géocodeur national (Base Adresse Nationale via Géoplateforme), sans clé.
     geocoder_base: str = "https://data.geopf.fr/geocodage"
     geocoder_fallback_base: str = "https://api-adresse.data.gouv.fr"
+    # Routeur cyclable BRouter (gratuit, sans clé) — PRIM ne route pas le vélo.
+    brouter_base: str = "https://brouter.de/brouter"
 
     # --- Réseau ----------------------------------------------------------------
     http_timeout_seconds: float = 15.0
