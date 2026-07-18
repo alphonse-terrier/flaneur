@@ -10,6 +10,7 @@ lieu d'une exception brute.
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any, Mapping
 
 import httpx
@@ -18,6 +19,11 @@ from idfm_mcp.config import Settings, get_settings
 
 # En-têtes HTTP acceptés pour transmettre la clé PRIM par requête (insensibles à la casse).
 API_KEY_HEADERS = ("x-prim-api-key", "apikey", "prim-api-key")
+
+# Réessai sur codes transitoires (limite de débit / indisponibilité momentanée).
+_RETRY_STATUS = {429, 503}
+_MAX_RETRIES = 2
+_RETRY_BACKOFF = 0.6  # secondes, multiplié par le numéro de tentative
 
 
 class PrimError(RuntimeError):
@@ -115,10 +121,12 @@ def _explain_status(exc: httpx.HTTPStatusError, source: str) -> PrimError:
     if status == 404:
         return PrimError(f"{source} : ressource introuvable (HTTP 404). Vérifiez les paramètres.")
     if status == 429:
-        return PrimError(
-            f"{source} : quota dépassé (HTTP 429). Réessayez plus tard ou demandez une "
-            "augmentation de quota sur PRIM."
+        hint = (
+            " Sur PRIM, vous pouvez demander une augmentation de quota."
+            if "PRIM" in source or "Navitia" in source or "SIRI" in source
+            else " Réessayez dans quelques instants."
         )
+        return PrimError(f"{source} : trop de requêtes (HTTP 429).{hint}")
     if status >= 500:
         return PrimError(f"{source} : le service distant est indisponible (HTTP {status}).")
     # Autres 4xx : on tente d'extraire un message d'erreur du corps.
@@ -147,20 +155,25 @@ async def _request_json(
     source: str,
 ) -> Any:
     client = get_client()
-    try:
-        response = await client.get(url, params=params, headers=headers)
-        response.raise_for_status()
-    except httpx.HTTPStatusError as exc:
-        raise _explain_status(exc, source) from exc
-    except httpx.TimeoutException as exc:
-        raise PrimError(f"{source} : délai d'attente dépassé.") from exc
-    except httpx.HTTPError as exc:
-        raise PrimError(f"{source} : erreur réseau ({exc}).") from exc
+    for attempt in range(_MAX_RETRIES + 1):
+        try:
+            response = await client.get(url, params=params, headers=headers)
+            response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            # 429/503 sont souvent transitoires (limite par IP) : on réessaie.
+            if exc.response.status_code in _RETRY_STATUS and attempt < _MAX_RETRIES:
+                await asyncio.sleep(_RETRY_BACKOFF * (attempt + 1))
+                continue
+            raise _explain_status(exc, source) from exc
+        except httpx.TimeoutException as exc:
+            raise PrimError(f"{source} : délai d'attente dépassé.") from exc
+        except httpx.HTTPError as exc:
+            raise PrimError(f"{source} : erreur réseau ({exc}).") from exc
 
-    try:
-        return response.json()
-    except ValueError as exc:
-        raise PrimError(f"{source} : réponse invalide (JSON attendu).") from exc
+        try:
+            return response.json()
+        except ValueError as exc:
+            raise PrimError(f"{source} : réponse invalide (JSON attendu).") from exc
 
 
 async def prim_get(path: str, params: dict[str, Any] | None = None, *, source: str = "PRIM") -> Any:
