@@ -1,14 +1,16 @@
 """Flâneur MCP server: Île-de-France journeys, disruptions, cycling and weather.
 
-Exposes six tools:
+Exposes eight tools:
 - ``geocode_address``: address/place → coordinates;
 - ``plan_journey``: full public-transit journey with real-time disruptions;
 - ``line_traffic``: traffic info (roadworks/incidents), network-wide or per line;
 - ``next_departures``: real-time next departures at a stop;
 - ``bike_route``: cycling route (via BRouter — PRIM doesn't route cycling);
-- ``weather``: current weather and forecast for an address (via OpenWeatherMap).
+- ``weather``: current weather and forecast for an address (via OpenWeatherMap);
+- ``mobility_advice``: one-call fusion of transit + bike + weather into a pick;
+- ``velib_nearby``: nearest Vélib' stations with live bike/dock availability.
 
-The first four rely on Île-de-France Mobilités' PRIM API.
+Transit tools rely on Île-de-France Mobilités' PRIM API.
 """
 
 from __future__ import annotations
@@ -20,6 +22,7 @@ from mcp.server.transport_security import TransportSecuritySettings
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
+from flaneur.advice import mobility_advice as _mobility_advice
 from flaneur.bike import bike_route as _bike_route
 from flaneur.config import get_settings
 from flaneur.departures import next_departures as _next_departures
@@ -32,8 +35,11 @@ from flaneur.models import (
     Disruption,
     GeoLocation,
     JourneyResult,
+    MobilityAdvice,
+    VelibResult,
     WeatherResult,
 )
+from flaneur.velib import velib_nearby as _velib_nearby
 from flaneur.weather import weather as _weather
 
 
@@ -62,7 +68,10 @@ mcp = FastMCP(
         "public-transit route between two addresses with the impact of roadworks "
         "and incidents, `line_traffic` for a line's traffic info, `next_departures` "
         "for real-time next departures at a stop, `bike_route` for a cycling route "
-        "(duration and distance), and `weather` for an address's weather."
+        "(duration and distance), `weather` for an address's weather, "
+        "`mobility_advice` for a one-call transit-vs-bike recommendation that "
+        "factors in weather and disruptions, and `velib_nearby` for live Vélib' "
+        "bike availability."
     ),
     transport_security=_transport_security(),
 )
@@ -196,6 +205,50 @@ async def weather(location: str, days: int = 3) -> WeatherResult:
         The resolved place, current conditions and the daily forecast.
     """
     return await _weather(location, days=days)
+
+
+@mcp.tool()
+async def mobility_advice(
+    origin: str,
+    destination: str,
+    when: str | None = None,
+    arrive_by: bool = False,
+) -> MobilityAdvice:
+    """Best way to get there, in one call: fuses transit, cycling and weather.
+
+    Combines `plan_journey` (real-time transit + disruptions), `bike_route`, and
+    `weather` into a single ranked recommendation with a human-readable summary —
+    e.g. "leave by bike, it's dry and your line is disrupted". Weather is optional
+    (needs an OpenWeatherMap key); advice degrades gracefully without it.
+
+    Args:
+        origin: Starting place — address, stop name, or `lon;lat` coordinates.
+        destination: Ending place — same formats as `origin`.
+        when: Date/time in ISO 8601 (e.g. `2026-07-18T08:30:00`). Default: now.
+        arrive_by: If true, `when` is the desired arrival time.
+
+    Returns:
+        The recommended mode, a one-line summary, the reasoning, and the underlying
+        transit / bike / weather details.
+    """
+    return await _mobility_advice(origin, destination, when=when, arrive_by=arrive_by)
+
+
+@mcp.tool()
+async def velib_nearby(location: str, limit: int = 5) -> VelibResult:
+    """Nearest Vélib' stations with real-time bike and dock availability.
+
+    Pairs with `bike_route` — find a station with bikes near you, then ride.
+    Uses the public Vélib' Métropole feed (no key needed).
+
+    Args:
+        location: Address, stop/place name, or `lon;lat` coordinates.
+        limit: Maximum number of nearby stations to return.
+
+    Returns:
+        The resolved location and the nearest stations (bikes, docks, distance).
+    """
+    return await _velib_nearby(location, limit=limit)
 
 
 def main() -> None:

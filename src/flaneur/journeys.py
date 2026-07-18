@@ -108,6 +108,21 @@ def _summarize_section(section: dict[str, Any], index: dict[str, Disruption]) ->
     )
 
 
+def _fare_eur(journey: dict[str, Any]) -> float | None:
+    """Extracts the total fare in euros. Navitia gives it in centimes."""
+    total = (journey.get("fare") or {}).get("total") or {}
+    value = total.get("value")
+    if value in (None, ""):
+        return None
+    try:
+        cents = float(value)
+    except (TypeError, ValueError):
+        return None
+    # IDFM reports "centime"; convert to euros. Guard other currencies by assuming
+    # centimes only when explicitly stated.
+    return round(cents / 100, 2) if total.get("currency") == "centime" else round(cents, 2)
+
+
 def _summarize_journey(journey: dict[str, Any], index: dict[str, Disruption]) -> Journey:
     sections = [_summarize_section(s, index) for s in journey.get("sections") or []]
     walking = sum(s.duration_minutes for s in sections if s.mode == "street_network")
@@ -120,6 +135,7 @@ def _summarize_journey(journey: dict[str, Any], index: dict[str, Disruption]) ->
         duration_minutes=round((journey.get("duration") or 0) / 60),
         nb_transfers=journey.get("nb_transfers") or 0,
         walking_minutes=walking,
+        fare_eur=_fare_eur(journey),
         sections=sections,
         has_disruptions=has_disruptions,
     )

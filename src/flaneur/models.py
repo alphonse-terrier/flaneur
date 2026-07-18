@@ -77,6 +77,7 @@ class Journey(BaseModel):
     duration_minutes: int = 0
     nb_transfers: int = 0
     walking_minutes: int = 0
+    fare_eur: float | None = Field(default=None, description="Estimated fare in euros, if known.")
     sections: list[JourneySection] = Field(default_factory=list)
     has_disruptions: bool = Field(
         default=False,
@@ -162,4 +163,40 @@ class DeparturesResult(BaseModel):
     stop_label: str
     stop_id: str
     departures: list[Departure] = Field(default_factory=list)
+    note: str | None = None
+
+
+class VelibStation(BaseModel):
+    """A Vélib' station with real-time availability."""
+
+    name: str
+    station_code: str | None = None
+    distance_m: int = Field(description="Distance from the query location, in meters.")
+    bikes_available: int = 0
+    mechanical_bikes: int | None = None
+    electric_bikes: int | None = None
+    docks_available: int = 0
+    capacity: int | None = None
+
+
+class VelibResult(BaseModel):
+    """Response of the velib_nearby tool."""
+
+    location: GeoLocation
+    stations: list[VelibStation] = Field(default_factory=list)
+    note: str | None = None
+
+
+class MobilityAdvice(BaseModel):
+    """Response of the mobility_advice tool: a single fused recommendation."""
+
+    origin: GeoLocation
+    destination: GeoLocation
+    recommended_mode: str = Field(description='"public_transport" or "bike".')
+    summary: str = Field(description="One-line, human-readable recommendation.")
+    reasons: list[str] = Field(default_factory=list)
+    transit: Journey | None = None
+    bike: BikeRoute | None = None
+    weather: WeatherCurrent | None = None
+    rain_expected: bool = False
     note: str | None = None

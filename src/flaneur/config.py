@@ -51,6 +51,8 @@ class Settings(BaseSettings):
     openweather_api_key: str = ""
     # In-memory weather response cache (seconds), to limit upstream calls.
     weather_cache_ttl: int = 600
+    # Vélib' Métropole real-time availability (GBFS, free, no key).
+    velib_base: str = "https://velib-metropole-opendata.smovengo.cloud/opendata/Velib_Metropole"
 
     # --- Network ---------------------------------------------------------------
     http_timeout_seconds: float = 15.0
