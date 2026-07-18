@@ -28,11 +28,11 @@ It ships as **two complementary pieces**:
 - **Real-time, not just timetables.** Every leg of a journey carries the roadworks /
   incidents affecting it, and each route reports its live status (`NO_SERVICE`,
   `SIGNIFICANT_DELAYS`, …) — pulled from IDFM's PRIM API.
-- **Honest travel times.** Cycling durations aren't taken at face value: BRouter's raw
-  estimate assumes near-uninterrupted riding (~20 km/h), so we **add a realistic delay
-  per traffic light on the route**, landing at the ~12-15 km/h you actually average in
-  Paris. Because the whole point is arriving on time. (See
-  [Engineering notes](#-engineering-notes).)
+- **Calendar-native.** Connect the **Google Calendar connector in Mistral Vibe** and
+  Flâneur plans around your *actual* day: it reads your next meeting's address and time,
+  tells you exactly when to leave, and can plan every journey *between* consecutive
+  meetings — flagging any two that are too close together to travel between. No
+  copy-pasting addresses.
 - **Multi-source fusion.** Transit + cycling + weather + disruptions combined into one
   recommendation: *"leave at 8:10 by bike — it's sunny and your line is disrupted."*
 - **Bring-your-own-key, multi-user.** Each user passes their own API key per request in
@@ -72,6 +72,11 @@ enough to walk?").
   drop the travel blocks straight into Google Calendar.
 - **Arrive-by planning for any mode** — "I want to bike and arrive by 14:00" returns
   the exact departure time, buffer included.
+
+> 🔗 **Calendar-aware answers:** enable the **Google Calendar connector in Mistral
+> Vibe** to unlock everything above that reads your schedule — "when do I leave for my
+> next meeting?", inter-meeting journeys, and conflict warnings. Flâneur combines the
+> connector (your agenda) with its own tools (routing, disruptions, weather).
 
 > 💡 **Tip — save your defaults in Mistral Libraries once.** Flâneur gets far more
 > useful when it knows your **home address**, your **main work address**, and your
