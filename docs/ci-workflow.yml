@@ -1,0 +1,38 @@
+# GitHub Actions CI for Flâneur.
+#
+# To enable it: copy this file to `.github/workflows/ci.yml` in the repo.
+# (It isn't committed there directly because the push token used during
+# development lacked the `workflow` scope. Adding it via the GitHub web UI,
+# or pushing with a `workflow`-scoped token, activates CI.)
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Set up Python
+        run: uv python install
+
+      - name: Install dependencies
+        run: uv sync --extra dev --frozen
+
+      - name: Lint (ruff)
+        run: uv run ruff check .
+
+      - name: Format check (ruff)
+        run: uv run ruff format --check .
+
+      - name: Tests (pytest)
+        run: uv run pytest -q
