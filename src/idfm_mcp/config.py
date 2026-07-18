@@ -28,6 +28,11 @@ class Settings(BaseSettings):
     host: str = "0.0.0.0"
     port: int = 8000  # Render fournit $PORT ; surchargé dans server.main()
 
+    # Hosts autorisés (protection anti DNS-rebinding). Liste séparée par des virgules.
+    # Vide = protection désactivée (adapté à un serveur public derrière HTTPS).
+    # Ex. "idfm-mcp.onrender.com,mon-domaine.fr" pour verrouiller.
+    allowed_hosts: str = ""
+
     # --- URLs de base ----------------------------------------------------------
     # Navitia v2 (journeys, places, line_reports, disruptions...) — coverage fr-idf implicite.
     prim_navitia_base: str = "https://prim.iledefrance-mobilites.fr/marketplace/v2/navitia"

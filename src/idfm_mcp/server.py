@@ -12,6 +12,7 @@ from __future__ import annotations
 import os
 
 from mcp.server.fastmcp import FastMCP
+from mcp.server.transport_security import TransportSecuritySettings
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
@@ -27,6 +28,24 @@ from idfm_mcp.models import (
     JourneyResult,
 )
 
+
+def _transport_security() -> TransportSecuritySettings:
+    """Sécurité du transport HTTP (protection anti DNS-rebinding).
+
+    Passée explicitement pour neutraliser la valeur par défaut du SDK, qui
+    n'autorise que localhost et renvoie 421 sur un host distant (ex. Render).
+    Vide = protection désactivée (serveur public derrière HTTPS) ; sinon on
+    verrouille sur les hosts déclarés dans ALLOWED_HOSTS.
+    """
+    hosts = [h.strip() for h in get_settings().allowed_hosts.split(",") if h.strip()]
+    if hosts:
+        return TransportSecuritySettings(
+            enable_dns_rebinding_protection=True,
+            allowed_hosts=hosts + ["127.0.0.1:*", "localhost:*"],
+        )
+    return TransportSecuritySettings(enable_dns_rebinding_protection=False)
+
+
 mcp = FastMCP(
     "idfm-mcp",
     instructions=(
@@ -36,6 +55,7 @@ mcp = FastMCP(
         "travaux et incidents, `line_traffic` pour l'info trafic d'une ligne, et "
         "`next_departures` pour les prochains passages à un arrêt."
     ),
+    transport_security=_transport_security(),
 )
 
 
