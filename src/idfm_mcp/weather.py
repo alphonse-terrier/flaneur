@@ -1,22 +1,29 @@
-"""Météo pour une adresse via l'API Open-Meteo (gratuite, sans clé).
+"""Météo pour une adresse via l'API OpenWeatherMap.
 
-Géocode l'adresse (Base Adresse Nationale) puis interroge Open-Meteo pour les
-conditions actuelles et les prévisions journalières. Utile pour arbitrer entre
-marche, vélo et transports selon le temps.
+Géocode l'adresse (Base Adresse Nationale) puis interroge OpenWeatherMap :
+- ``/weather`` pour les conditions actuelles ;
+- ``/forecast`` (créneaux de 3 h sur 5 jours) agrégé en prévisions journalières.
+
+OpenWeatherMap exige une clé : chaque client peut l'envoyer dans l'en-tête
+``X-OpenWeather-Api-Key`` ; sinon on utilise la variable ``OPENWEATHER_API_KEY``.
+Les réponses sont mises en cache quelques minutes pour limiter les appels.
 """
 
 from __future__ import annotations
 
 import time
+from datetime import datetime, timezone
 from typing import Any
 
-from idfm_mcp.config import get_settings
+from idfm_mcp.config import Settings, get_settings
 from idfm_mcp.geocoding import resolve_place
-from idfm_mcp.models import GeoLocation, WeatherCurrent, WeatherDay, WeatherResult
-from idfm_mcp.prim_client import public_get
+from idfm_mcp.models import WeatherCurrent, WeatherDay, WeatherResult
+from idfm_mcp.prim_client import PrimError, api_key_from_request, public_get
+
+# En-têtes acceptés pour transmettre la clé OpenWeatherMap par requête.
+OPENWEATHER_HEADERS = ("x-openweather-api-key", "openweather-api-key")
 
 # Cache mémoire : (lat arrondie, lon arrondie, jours) -> (expiration, (current, daily)).
-# Arrondi à 2 décimales ≈ maille ~1 km, suffisant pour la météo.
 _cache: dict[tuple[float, float, int], tuple[float, tuple[Any, list[Any]]]] = {}
 
 
@@ -24,137 +31,147 @@ def clear_cache() -> None:
     """Vide le cache météo (utile pour les tests)."""
     _cache.clear()
 
-# Codes météo WMO → descriptions en français.
-_WMO_CODES = {
-    0: "Ciel dégagé",
-    1: "Principalement dégagé",
-    2: "Partiellement nuageux",
-    3: "Couvert",
-    45: "Brouillard",
-    48: "Brouillard givrant",
-    51: "Bruine légère",
-    53: "Bruine modérée",
-    55: "Bruine dense",
-    56: "Bruine verglaçante légère",
-    57: "Bruine verglaçante dense",
-    61: "Pluie légère",
-    63: "Pluie modérée",
-    65: "Pluie forte",
-    66: "Pluie verglaçante légère",
-    67: "Pluie verglaçante forte",
-    71: "Neige légère",
-    73: "Neige modérée",
-    75: "Neige forte",
-    77: "Grains de neige",
-    80: "Averses légères",
-    81: "Averses modérées",
-    82: "Averses violentes",
-    85: "Averses de neige légères",
-    86: "Averses de neige fortes",
-    95: "Orage",
-    96: "Orage avec grêle légère",
-    99: "Orage avec grêle forte",
-}
 
-_CURRENT_FIELDS = (
-    "temperature_2m",
-    "apparent_temperature",
-    "precipitation",
-    "weather_code",
-    "wind_speed_10m",
-    "relative_humidity_2m",
-)
-_DAILY_FIELDS = (
-    "weather_code",
-    "temperature_2m_max",
-    "temperature_2m_min",
-    "precipitation_sum",
-    "precipitation_probability_max",
-)
-
-
-def _describe(code: Any) -> str | None:
-    try:
-        return _WMO_CODES.get(int(code))
-    except (TypeError, ValueError):
-        return None
+def _resolve_key(settings: Settings) -> str:
+    key = api_key_from_request(OPENWEATHER_HEADERS)
+    if not key:
+        key = settings.openweather_api_key.strip() or None
+    if not key:
+        raise PrimError(
+            "Aucune clé OpenWeatherMap fournie. Envoyez-la dans l'en-tête "
+            "'X-OpenWeather-Api-Key' (ou définissez OPENWEATHER_API_KEY). "
+            "Créez une clé gratuite sur https://openweathermap.org/api."
+        )
+    return key
 
 
 async def weather(location: str, days: int = 3) -> WeatherResult:
-    """Récupère la météo (actuelle + prévisions) pour une adresse ou un lieu.
-
-    Les réponses sont mises en cache (par maille ~1 km) pendant quelques minutes
-    pour limiter les appels à Open-Meteo. Si ``OPENMETEO_API_KEY`` est défini, on
-    utilise l'endpoint client dédié (quota propre).
-    """
+    """Récupère la météo (actuelle + prévisions) pour une adresse ou un lieu."""
     settings = get_settings()
+    key = _resolve_key(settings)
     loc = await resolve_place(location)
-    forecast_days = max(1, min(days, 7))
+    forecast_days = max(1, min(days, 5))  # OWM (offre gratuite) : 5 jours max
 
-    key = (round(loc.latitude, 2), round(loc.longitude, 2), forecast_days)
+    cache_key = (round(loc.latitude, 2), round(loc.longitude, 2), forecast_days)
     now = time.monotonic()
-    cached = _cache.get(key)
+    cached = _cache.get(cache_key)
     if cached and cached[0] > now:
         current, daily = cached[1]
         return WeatherResult(location=loc, current=current, daily=daily)
 
-    params: dict[str, Any] = {
-        "latitude": loc.latitude,
-        "longitude": loc.longitude,
-        "current": ",".join(_CURRENT_FIELDS),
-        "daily": ",".join(_DAILY_FIELDS),
-        "timezone": "Europe/Paris",
-        "forecast_days": forecast_days,
+    common = {
+        "lat": loc.latitude,
+        "lon": loc.longitude,
+        "appid": key,
+        "units": "metric",
+        "lang": "fr",
     }
-    if settings.openmeteo_api_key:
-        base = settings.openmeteo_customer_base
-        params["apikey"] = settings.openmeteo_api_key
-    else:
-        base = settings.openmeteo_base
+    current_data = await public_get(
+        f"{settings.openweather_base}/weather", common, source="OpenWeatherMap"
+    )
+    forecast_data = await public_get(
+        f"{settings.openweather_base}/forecast", common, source="OpenWeatherMap"
+    )
 
-    data = await public_get(base, params, source="Open-Meteo")
-    current, daily = _parse_current(data), _parse_daily(data)
-    _cache[key] = (now + settings.weather_cache_ttl, (current, daily))
+    current = _parse_current(current_data)
+    daily = _aggregate_daily(forecast_data, forecast_days)
+    _cache[cache_key] = (now + settings.weather_cache_ttl, (current, daily))
 
     return WeatherResult(location=loc, current=current, daily=daily)
 
 
-def _parse_current(data: Any) -> WeatherCurrent | None:
-    current = (data or {}).get("current")
-    if not current:
+def _cap(text: Any) -> str | None:
+    if not isinstance(text, str) or not text:
         return None
+    return text[0].upper() + text[1:]
+
+
+def _first_weather(item: dict[str, Any]) -> dict[str, Any]:
+    weather_list = item.get("weather") or []
+    return weather_list[0] if weather_list else {}
+
+
+def _parse_current(data: Any) -> WeatherCurrent | None:
+    if not isinstance(data, dict) or not data.get("main"):
+        return None
+    main = data.get("main") or {}
+    wind = data.get("wind") or {}
+    w = _first_weather(data)
+    precip = _precip(data, "1h")
+    dt = data.get("dt")
     return WeatherCurrent(
-        time=current.get("time"),
-        condition=_describe(current.get("weather_code")),
-        weather_code=current.get("weather_code"),
-        temperature_c=current.get("temperature_2m"),
-        apparent_temperature_c=current.get("apparent_temperature"),
-        precipitation_mm=current.get("precipitation"),
-        wind_speed_kmh=current.get("wind_speed_10m"),
-        humidity_pct=current.get("relative_humidity_2m"),
+        time=_iso(dt),
+        condition=_cap(w.get("description")),
+        weather_code=w.get("id"),
+        temperature_c=main.get("temp"),
+        apparent_temperature_c=main.get("feels_like"),
+        precipitation_mm=precip,
+        wind_speed_kmh=round(wind["speed"] * 3.6, 1) if wind.get("speed") is not None else None,
+        humidity_pct=main.get("humidity"),
     )
 
 
-def _parse_daily(data: Any) -> list[WeatherDay]:
-    daily = (data or {}).get("daily") or {}
-    dates = daily.get("time") or []
+def _aggregate_daily(data: Any, max_days: int) -> list[WeatherDay]:
+    items = (data or {}).get("list") or []
+    by_date: dict[str, list[dict[str, Any]]] = {}
+    for item in items:
+        date = (item.get("dt_txt") or "")[:10]
+        if date:
+            by_date.setdefault(date, []).append(item)
+
     days: list[WeatherDay] = []
-    for i, date in enumerate(dates):
-        code = _get(daily, "weather_code", i)
+    for date in sorted(by_date)[:max_days]:
+        group = by_date[date]
+        mins = [_temp_min(g) for g in group if _temp_min(g) is not None]
+        maxs = [_temp_max(g) for g in group if _temp_max(g) is not None]
+        precip = sum(_precip(g, "3h") or 0.0 for g in group)
+        pops = [g.get("pop") for g in group if g.get("pop") is not None]
+        midday = _closest_to_noon(group)
+        w = _first_weather(midday)
         days.append(
             WeatherDay(
                 date=date,
-                condition=_describe(code),
-                weather_code=code,
-                temp_min_c=_get(daily, "temperature_2m_min", i),
-                temp_max_c=_get(daily, "temperature_2m_max", i),
-                precipitation_mm=_get(daily, "precipitation_sum", i),
-                precipitation_probability_pct=_get(daily, "precipitation_probability_max", i),
+                condition=_cap(w.get("description")),
+                weather_code=w.get("id"),
+                temp_min_c=round(min(mins), 1) if mins else None,
+                temp_max_c=round(max(maxs), 1) if maxs else None,
+                precipitation_mm=round(precip, 1),
+                precipitation_probability_pct=round(max(pops) * 100) if pops else None,
             )
         )
     return days
 
 
-def _get(daily: dict[str, Any], key: str, i: int) -> Any:
-    values = daily.get(key) or []
-    return values[i] if i < len(values) else None
+def _temp_min(item: dict[str, Any]) -> float | None:
+    main = item.get("main") or {}
+    return main.get("temp_min", main.get("temp"))
+
+
+def _temp_max(item: dict[str, Any]) -> float | None:
+    main = item.get("main") or {}
+    return main.get("temp_max", main.get("temp"))
+
+
+def _precip(item: dict[str, Any], window: str) -> float | None:
+    rain = (item.get("rain") or {}).get(window) or 0.0
+    snow = (item.get("snow") or {}).get(window) or 0.0
+    total = rain + snow
+    return round(total, 1) if total else (0.0 if item.get("rain") or item.get("snow") else None)
+
+
+def _closest_to_noon(group: list[dict[str, Any]]) -> dict[str, Any]:
+    def hour_gap(item: dict[str, Any]) -> int:
+        txt = item.get("dt_txt") or ""
+        try:
+            return abs(int(txt[11:13]) - 12)
+        except (ValueError, IndexError):
+            return 99
+
+    return min(group, key=hour_gap)
+
+
+def _iso(dt: Any) -> str | None:
+    try:
+        return datetime.fromtimestamp(int(dt), tz=timezone.utc).isoformat()
+    except (TypeError, ValueError):
+        return None

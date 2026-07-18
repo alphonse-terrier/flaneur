@@ -17,7 +17,7 @@ affectant chaque étape du trajet.
 | `line_traffic(line?)` | Info trafic (travaux/incidents) : globale ou pour une ligne donnée. |
 | `next_departures(stop, limit?)` | Prochains passages temps réel à un arrêt. |
 | `bike_route(origin, destination, profile?)` | Itinéraire à vélo (durée + distance) via BRouter. |
-| `weather(location, days?)` | Météo actuelle + prévisions journalières pour une adresse (Open-Meteo). |
+| `weather(location, days?)` | Météo actuelle + prévisions journalières pour une adresse (OpenWeatherMap). |
 
 `origin` / `destination` acceptent une **adresse** (« 29 rue de Rivoli, Paris »), un
 **nom d'arrêt** (« Châtelet ») ou des **coordonnées** `longitude;latitude`.
@@ -33,7 +33,7 @@ src/idfm_mcp/
 ├── disruptions.py   # Info trafic (disruptions_bulk / line_reports)
 ├── departures.py    # Prochains passages (SIRI stop-monitoring)
 ├── bike.py          # Itinéraire vélo (BRouter)
-├── weather.py       # Météo (Open-Meteo)
+├── weather.py       # Météo (OpenWeatherMap)
 ├── models.py        # Modèles Pydantic des sorties
 └── server.py        # Serveur FastMCP + enregistrement des outils
 ```
@@ -45,9 +45,8 @@ Sources de données :
 - **Géocodeur national** (Base Adresse Nationale via Géoplateforme) — sans clé.
 - **BRouter** (routeur cyclable open source) pour le vélo — sans clé. PRIM ne calcule
   pas d'itinéraire vélo (sa couverture Navitia ne route que la marche).
-- **Open-Meteo** pour la météo — sans clé (réponses mises en cache ~10 min).
-  Optionnel : définir `OPENMETEO_API_KEY` bascule sur l'endpoint client dédié
-  (quota propre, évite les 429 dus à l'IP partagée sur Render).
+- **OpenWeatherMap** pour la météo (réponses mises en cache ~10 min). Clé requise :
+  en-tête `X-OpenWeather-Api-Key` par requête, ou repli `OPENWEATHER_API_KEY`.
 
 ## Prérequis
 

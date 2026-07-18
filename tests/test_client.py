@@ -14,8 +14,8 @@ def _status_error(status: int) -> httpx.HTTPStatusError:
     return httpx.HTTPStatusError("err", request=req, response=resp)
 
 
-def test_429_message_is_source_specific_for_openmeteo():
-    msg = str(_explain_status(_status_error(429), "Open-Meteo"))
+def test_429_message_is_source_specific_for_third_party():
+    msg = str(_explain_status(_status_error(429), "OpenWeatherMap"))
     assert "429" in msg
     assert "PRIM" not in msg  # ne doit plus parler de PRIM pour une source tierce
 

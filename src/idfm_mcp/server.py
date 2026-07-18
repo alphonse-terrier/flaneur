@@ -6,7 +6,7 @@ Expose six outils :
 - ``line_traffic`` : info trafic (travaux/incidents) globale ou par ligne ;
 - ``next_departures`` : prochains passages temps réel à un arrêt ;
 - ``bike_route`` : itinéraire à vélo (via BRouter — PRIM ne route pas le vélo) ;
-- ``weather`` : météo actuelle et prévisions pour une adresse (via Open-Meteo).
+- ``weather`` : météo actuelle et prévisions pour une adresse (via OpenWeatherMap).
 
 Les quatre premiers s'appuient sur l'API PRIM d'Île-de-France Mobilités.
 """
@@ -178,11 +178,12 @@ async def weather(location: str, days: int = 3) -> WeatherResult:
     """Récupère la météo (actuelle + prévisions) pour une adresse ou un lieu.
 
     Pratique pour arbitrer entre marche, vélo et transports selon le temps.
-    S'appuie sur Open-Meteo (gratuit, sans clé).
+    S'appuie sur OpenWeatherMap : envoyez votre clé dans l'en-tête
+    'X-OpenWeather-Api-Key' (ou définissez OPENWEATHER_API_KEY côté serveur).
 
     Args:
         location: Adresse, nom d'arrêt/ville, ou coordonnées `lon;lat`.
-        days: Nombre de jours de prévision (1 à 7, défaut 3).
+        days: Nombre de jours de prévision (1 à 5, défaut 3).
 
     Returns:
         Le lieu résolu, les conditions actuelles et les prévisions journalières.

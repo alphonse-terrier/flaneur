@@ -43,12 +43,10 @@ class Settings(BaseSettings):
     geocoder_fallback_base: str = "https://api-adresse.data.gouv.fr"
     # Routeur cyclable BRouter (gratuit, sans clé) — PRIM ne route pas le vélo.
     brouter_base: str = "https://brouter.de/brouter"
-    # Météo Open-Meteo. Sans clé = endpoint public (quota par IP, partagée sur Render).
-    openmeteo_base: str = "https://api.open-meteo.com/v1/forecast"
-    # Avec une clé (OPENMETEO_API_KEY), on bascule sur l'endpoint client dédié
-    # (quota propre, plus de problème d'IP partagée).
-    openmeteo_customer_base: str = "https://customer-api.open-meteo.com/v1/forecast"
-    openmeteo_api_key: str = ""
+    # Météo OpenWeatherMap (clé requise). Chaque client peut envoyer la sienne dans
+    # l'en-tête 'X-OpenWeather-Api-Key' ; sinon repli sur OPENWEATHER_API_KEY.
+    openweather_base: str = "https://api.openweathermap.org/data/2.5"
+    openweather_api_key: str = ""
     # Cache mémoire des réponses météo (secondes) pour limiter les appels.
     weather_cache_ttl: int = 600
 

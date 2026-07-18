@@ -75,16 +75,25 @@ def _current_request_headers() -> Mapping[str, str] | None:
     return getattr(request, "headers", None)
 
 
-def _api_key_from_request() -> str | None:
-    """Extrait la clé PRIM d'un en-tête HTTP de la requête courante (Bearer inclus)."""
+def api_key_from_request(header_names: tuple[str, ...]) -> str | None:
+    """Lit une clé dans les en-têtes de la requête HTTP courante (service quelconque)."""
     headers = _current_request_headers()
     if not headers:
         return None
-    for name in API_KEY_HEADERS:
+    for name in header_names:
         value = headers.get(name)
         if value and value.strip():
             return value.strip()
-    auth = headers.get("authorization")
+    return None
+
+
+def _api_key_from_request() -> str | None:
+    """Extrait la clé PRIM d'un en-tête HTTP de la requête courante (Bearer inclus)."""
+    key = api_key_from_request(API_KEY_HEADERS)
+    if key:
+        return key
+    headers = _current_request_headers()
+    auth = headers.get("authorization") if headers else None
     if auth and auth.lower().startswith("bearer "):
         token = auth[len("bearer ") :].strip()
         if token:
@@ -113,10 +122,12 @@ def resolve_api_key() -> str:
 def _explain_status(exc: httpx.HTTPStatusError, source: str) -> PrimError:
     status = exc.response.status_code
     if status in (401, 403):
+        if "PRIM" in source or "Navitia" in source or "SIRI" in source:
+            detail = "Vérifiez la clé PRIM ('X-PRIM-Api-Key' ou la variable PRIM_API_KEY)."
+        else:
+            detail = "Vérifiez la clé API fournie pour ce service."
         return PrimError(
-            f"{source} : authentification refusée (HTTP {status}). "
-            "Vérifiez la clé PRIM envoyée dans l'en-tête 'X-PRIM-Api-Key' "
-            "(ou la variable d'environnement PRIM_API_KEY)."
+            f"{source} : authentification refusée (HTTP {status}). {detail}"
         )
     if status == 404:
         return PrimError(f"{source} : ressource introuvable (HTTP 404). Vérifiez les paramètres.")
