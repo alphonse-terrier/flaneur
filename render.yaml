@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: idfm-mcp
+    runtime: python
+    plan: free
+    buildCommand: pip install .
+    startCommand: python -m idfm_mcp.server
+    healthCheckPath: /mcp
+    envVars:
+      - key: PRIM_API_KEY
+        sync: false        # à renseigner comme secret dans le dashboard Render
+      - key: PYTHON_VERSION
+        value: "3.12"

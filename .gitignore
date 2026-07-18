@@ -1,0 +1,23 @@
+# Environnement
+.env
+.venv/
+venv/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# Outils
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+# uv.lock est committé volontairement (builds reproductibles sur Render).
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
