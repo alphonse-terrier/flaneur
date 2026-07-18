@@ -83,6 +83,28 @@ re-derive it loosely.
    during the journey itself.
 7. **Assemble recommendations** and render the output format.
 
+### Being forgiving with input
+
+Users don't speak in ISO 8601 or full postal addresses — meet them where they are,
+*before* calling any tool:
+
+- **Natural-language times.** Accept "tomorrow 9am", "in 30 min", "ce soir", "à 14h",
+  "now". Resolve to ISO 8601 in **Europe/Paris** yourself, then call the tools. Assume
+  "at Xh" means an *arrival* only if the phrasing implies it ("for my 9am"), otherwise
+  a departure.
+- **Vague locations → the user's saved defaults.** Map "home / chez moi / la maison" →
+  `user_home`, and "work / le bureau / le taf" → `user_work` (from Mistral Libraries;
+  see the README tip). If a default is needed but missing, ask once, and suggest saving
+  it to a Library so it's not asked again.
+- **Confirm an ambiguous address.** Geocoding returns the top match. If the query had no
+  city/postcode or is a common street name, state the resolved label back
+  ("I used *29 Rue de Rivoli, 75004 Paris*") so a wrong match is caught before you route
+  from the wrong place. When confident (postcode given, or a well-known landmark), just
+  proceed.
+- **Missing/invalid API key → a next step, not a stack trace.** If a tool reports an
+  auth error, tell the user plainly what to add (e.g. "add your free PRIM key as the
+  `X-PRIM-Api-Key` header") rather than surfacing the raw error.
+
 ## 📥 Inputs
 
 ### Required parameters
@@ -148,7 +170,8 @@ re-derive it loosely.
 
     status?: string,  // e.g. "NO_SERVICE", "SIGNIFICANT_DELAYS"
     has_disruptions?: boolean,
-    disruptions?: Disruption[]
+    disruptions?: Disruption[],
+    fallback_note?: string  // set when the fastest route was out of service and skipped
   },
 
   alternative_journeys?: Journey[],  // public transport
@@ -158,6 +181,16 @@ re-derive it loosely.
     midpoint?: WeatherCheck,  // omitted for short legs, see note below
     arrival: WeatherCheck,
     overall_recommendation: string
+  },
+
+  // All-day rain heads-up for the journey's date, independent of the travel window.
+  rain_outlook?: {
+    willRain: boolean,
+    date?: string,
+    probabilityPct?: number,
+    precipMm?: number,
+    beyondHorizon?: boolean,  // true if the date is past the 5-day forecast limit
+    message?: string
   },
 
   calendar_alerts?: {
@@ -233,6 +266,26 @@ Alert thresholds:
 If unfavorable conditions are detected, the skill issues an alert, may
 recommend an alternative transport mode, and provides advice (equipment,
 postponement, etc.).
+
+### 🌧️ Always warn about rain anywhere in the day
+
+The point-in-time checks above look only at the travel window. But it's
+annoying to leave on a bike that's dry at 8:10 and get soaked at 11:00. So,
+**for every itinerary and every mode**, the skill *also* looks at the
+**whole-day** forecast for the journey's date and, at minimum, tells the user
+if rain is expected **at any point that day** — even when the travel-window
+weather looks clear.
+
+- Source: the `daily` entry for the journey's date in the `weather` output
+  (`precipitation_probability_pct` is the day's max chance;
+  `precipitation_mm` its total). No extra call is needed for bike/walk (that
+  data is already in the responses fetched for the point checks); for
+  transit, one cached daily lookup at the destination covers it.
+- Heads-up threshold (deliberately lower than the in-window alert):
+  `precipitation_probability_pct ≥ 30` **or** `precipitation_mm ≥ 0.5`.
+- This is always surfaced as advice (e.g. *"🌧️ Rain likely today (up to 70%)
+  — take a jacket, even though it's dry when you leave."*). It never blocks a
+  journey; it just makes sure the user is never surprised by rain.
 
 **Forecast window:** when the target time is not "now", request enough
 forecast days to cover it — `days = min(5, max(1, days_between(today, target_date) + 1))`
@@ -530,37 +583,86 @@ within the buffer, and a warning for any meeting you'd arrive late to.
 
 ## 🎨 User Output Format
 
+Presentation rules that make the answer feel human — apply these to every response:
+
+- **Lead with the answer.** The first line is the decision, not a header:
+  *"🚴 Leave at **8:14** to arrive by 9:00 — 22 min by bike."* Someone glancing at a
+  notification should get the takeaway from that line alone.
+- **Times in local Paris time, never raw ISO/UTC.** Convert every tool timestamp to
+  **Europe/Paris** and show `HH:MM` (e.g. "8:14"). Durations human-friendly:
+  "1 h 05", not "65 min"; "in 20 min" / "now" when it reads naturally.
+- **Answer in the user's language.** If they asked in French, reply in French; keep
+  proper nouns verbatim (line names, stop names, "RER A").
+- **Disruptions are actionable, not raw.** Summarize each as *line → effect → what to
+  do*: *"Line 8: severe delays until 10:00 — take bus 87 instead."* Mention only
+  disruptions that actually touch the recommended route.
+- **Explain a swapped route or mode.** If the fastest option was out of service
+  (`fallback_note`) or the bike was dropped for weather, say so in one line — the user
+  should never wonder why they got route B.
+- **Show the trade-off for `auto`/unspecified mode.** One compact line of what you
+  weighed: *"bike ~22 min vs metro ~28 min → bike, weather's fine."*
+- **Always pass on the rain heads-up** (`rain_outlook`) when rain is expected that day,
+  even if it's dry at departure.
+- **Degrade, don't fail.** If weather or calendar was unavailable, still give the
+  route and add a one-line "weather unavailable" note — never withhold the answer.
+
+### Full interactive response
+
 ```
-## 📍 Route: [Departure] → [Arrival]
+🚴 Leave at 8:14 to arrive by 9:00 — 22 min by bike.   ← one-line TL;DR first
 
-**Mode:** [public_transport/bike/walk]
-**Recommended departure time:** [HH:MM]
-**Estimated arrival time:** [HH:MM]
-**Duration:** [X] minutes
-**Distance:** [Y] km (bike/walk)
+## 📍 [Departure] → [Arrival]
+**Mode:** bike · **Leave:** 8:14 · **Arrive:** ~8:47 · **22 min** · 5.1 km
 
----
-
-### 🚆 Route Details
-[Detailed description of each step]
+### 🚆 Route details
+[Each step, times in local HH:MM]
 
 ### ⚠️ Disruptions
-[List of detected disruptions, if any]
+[Line → effect → what to do — only if relevant to this route]
 
-### 🌤️ Weather Conditions (bike/walk)
-- **Departure:** [Condition] – [Temperature]°C
-- **Mid-journey:** [Condition] – [Temperature]°C (only for legs > 12 min)
-- **Arrival:** [Condition] – [Temperature]°C
-
-**Recommendation:** [Recommendation message]
+### 🌤️ Weather
+[Departure / (mid) / arrival conditions for bike/walk; plus the all-day rain heads-up]
 
 ### 📅 Calendar
-[Nearby appointments, and any conflicts with the journey itself]
+[Nearby appointments and any conflict during the journey]
 
 ### 💡 Advice
-- [Advice 1]
-- [Advice 2]
+- [Rain heads-up, gear, buffer reminder, …]
 ```
+
+### Glanceable briefing (for scheduled tasks / notifications)
+
+For a recurring morning briefing or an alert, use a compact single-block format instead
+of the full layout — status emoji + one line:
+
+```
+✅ Leave 8:14 — all clear (Line 1, 22 min).
+```
+```
+⚠️ Leave 8:02 — Line 8 has major delays, take bus 87 (28 min). 🌧️ Rain after 11:00.
+```
+
+See [Scheduled-task behavior](#-scheduled-task-behavior) for when to stay silent.
+
+## 📡 Scheduled-task behavior
+
+When this skill runs on a schedule (e.g. a Mistral Vibe scheduled task for a morning
+briefing or a live disruption watch), a few behaviors make it a helpful daily agent
+rather than a noisy one:
+
+- **Quiet when nominal (`quiet_when_nominal`, default true for alerts).** If the route
+  is clear, on time, and the weather is fine, **send nothing** — or a single ✅ line if
+  the task is a positive daily confirmation. Notify only when something is worth acting
+  on: a disruption on the route, severe or rainy weather, or a departure time that
+  moved meaningfully (> ~5 min) from the usual. Notification fatigue is what kills a
+  recurring agent.
+- **Use the glanceable format** above, not the full interactive layout.
+- **Skip days off.** If the task is calendar-driven and there's no relevant event that
+  day (weekend, holiday, no meetings), don't send a commute briefing. If it's a fixed
+  home→work briefing, still respect the user's working days.
+- **Lead with the change.** The first line should say what's different today
+  (*"Leave 12 min earlier — Line 8 is down"*), since that's the reason the notification
+  is worth reading.
 
 ## ⚠️ Error Handling
 
@@ -758,7 +860,18 @@ async function calculateOptimalJourney(params: {
       max_journeys
     });
     if (!result.journeys?.length) throw new Error("No public transport route found");
-    const best = result.journeys[0];
+
+    // C1 — don't recommend a dead route. If the fastest option is out of
+    // service, promote the next-best usable journey as the recommendation.
+    const journeys = result.journeys;
+    const usableIdx = journeys.findIndex((j: any) => j.status !== "NO_SERVICE");
+    const chosenIdx = usableIdx >= 0 ? usableIdx : 0;
+    const best = journeys[chosenIdx];
+    const fallback_note = chosenIdx > 0
+      ? `The fastest option (${formatPublicTransportSummary(journeys[0])}) is out of ` +
+        `service right now — recommending the next-best route instead.`
+      : undefined;
+
     recommended = {
       mode: "public_transport",
       departure_time: best.departure,
@@ -768,9 +881,10 @@ async function calculateOptimalJourney(params: {
       status: best.status,
       has_disruptions: best.has_disruptions,
       disruptions: (best.sections || []).flatMap((s: any) => s.disruptions || []),
-      route_summary: formatPublicTransportSummary(best)
+      route_summary: formatPublicTransportSummary(best),
+      fallback_note
     };
-    alternatives = result.journeys.slice(1);
+    alternatives = journeys.filter((_: any, i: number) => i !== chosenIdx);
   }
 
   // 5. Calendar checks against the resolved arrival/departure.
@@ -780,6 +894,12 @@ async function calculateOptimalJourney(params: {
     journey_conflicts = await checkJourneyAgainstCalendar(recommended.departure_time, recommended.arrival_time, calendar_time_window);
   }
 
+  // 6. All-day rain heads-up (every mode), scoped to the journey's date.
+  const rain_outlook = await rainOutlookForDay(
+    destinationCoord,
+    recommended.arrival_time || recommended.departure_time || targetTime
+  );
+
   const out: any = {
     origin: originGeo,
     destination: destinationGeo,
@@ -788,10 +908,13 @@ async function calculateOptimalJourney(params: {
     weather_alerts: recommended.weather_alerts,
     calendar_alerts,
     journey_conflicts,
+    rain_outlook,
     calculated_at: await step(() => new Date().toISOString()),
     note: arrive_by ? `${buffer_minutes ?? 5}-minute buffer applied to arrival time` : undefined
   };
-  out.recommendations = generateRecommendations({ ...recommended, calendar_alerts, journey_conflicts, note: out.note });
+  out.recommendations = generateRecommendations({
+    ...recommended, calendar_alerts, journey_conflicts, rain_outlook, note: out.note
+  });
   return out;
 }
 
@@ -1119,8 +1242,50 @@ function analyzeWeather(weatherResult: any, targetTime: Date) {
   };
 }
 
+// Whole-day rain heads-up for the journey's date — independent of the exact
+// travel window. It can be dry at 8:10 and pour at 11:00; at minimum we always
+// tell the user rain is coming that day. Runs for every mode; the weather cache
+// dedupes the call when bike/walk already fetched this location.
+async function rainOutlookForDay(coord: string, dateISO: string) {
+  const date = new Date(dateISO);
+  const forecastDays = computeForecastDays(date);
+  if (forecastDays > 5) return { willRain: false, beyondHorizon: true };
+
+  const w = await tools.flaneur.weather({ location: coord, days: forecastDays });
+  const dayKey = date.toISOString().split("T")[0];
+  const day = (w.daily || []).find((d: any) => d.date === dayKey);
+  if (!day) return { willRain: false };
+
+  const probabilityPct = day.precipitation_probability_pct ?? null;
+  const precipMm = day.precipitation_mm ?? null;
+  // Deliberately lower than the in-window alert (>60%): a heads-up, not a veto.
+  const willRain = (probabilityPct != null && probabilityPct >= 30) ||
+                   (precipMm != null && precipMm >= 0.5);
+
+  return {
+    willRain,
+    date: day.date,
+    probabilityPct,
+    precipMm,
+    message: willRain
+      ? `🌧️ Rain likely on ${day.date}${probabilityPct != null ? ` (up to ${probabilityPct}%)` : ""}` +
+        ` — take a jacket, even if it's dry when you leave.`
+      : undefined
+  };
+}
+
 function generateRecommendations(journeyResult: any) {
   const recommendations: string[] = [];
+
+  // Broken-route fallback note comes first — it explains the recommended route.
+  if (journeyResult.fallback_note) {
+    recommendations.push(journeyResult.fallback_note);
+  }
+
+  // Always-on rain heads-up for the day (any mode), even if the travel window is dry.
+  if (journeyResult.rain_outlook?.willRain) {
+    recommendations.push(journeyResult.rain_outlook.message);
+  }
 
   if (journeyResult.mode === "walk" && journeyResult.distance_km > 5) {
     recommendations.push("Consider a bike or public transport for this distance.");
