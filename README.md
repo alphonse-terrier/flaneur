@@ -93,23 +93,26 @@ enough to walk?").
 
 ## 🔌 The MCP server
 
-Six tools, callable from any MCP client:
+Eight tools, callable from any MCP client:
 
 | Tool | Description |
 |---|---|
-| `geocode_address(query)` | Address or place name → coordinates. |
-| `plan_journey(origin, destination, when?, arrive_by?, max_journeys?)` | Best real-time transit journey(s), with disruptions attached to each leg. |
+| `mobility_advice(origin, destination, when?, arrive_by?)` | **One call → one recommendation.** Fuses transit + bike + weather + disruptions and picks the best mode with a human summary. |
+| `plan_journey(origin, destination, when?, arrive_by?, max_journeys?, wheelchair?, max_transfers?)` | Best real-time transit journey(s), with disruptions per leg and the fare. |
 | `line_traffic(line?)` | Traffic info (roadworks/incidents): network-wide or per line. |
 | `next_departures(stop, limit?)` | Real-time next departures at a stop. |
 | `bike_route(origin, destination, profile?)` | Cycling route (duration + distance), traffic-light adjusted. |
+| `velib_nearby(location, limit?)` | Nearest Vélib' stations with live bikes (mechanical/electric) & docks. |
 | `weather(location, days?)` | Current weather + daily forecast for an address. |
+| `geocode_address(query)` | Address or place name → coordinates. |
 
 `origin` / `destination` accept an **address** ("29 rue de Rivoli, Paris"), a
-**stop name** ("Châtelet"), or **coordinates** (`longitude;latitude`).
+**stop name** ("Châtelet"), or **coordinates** (`longitude;latitude`). All times are
+returned as tz-aware Europe/Paris ISO 8601.
 
 **Data sources:** [PRIM](https://prim.iledefrance-mobilites.fr) (IDFM — Navitia journeys
 + SIRI real-time), the French national geocoder (Géoplateforme), BRouter (cycling),
-and OpenWeatherMap (weather).
+Vélib' Métropole (bike availability), and OpenWeatherMap (weather).
 
 ## 🧠 The skill: `flaneur-itinerary`
 
@@ -173,11 +176,40 @@ curl http://localhost:8000/healthz   # {"status":"ok","service":"flaneur"}
 Inspect the tools interactively: `uv run mcp dev src/flaneur/server.py`.
 
 Example calls once connected:
+- `mobility_advice("Gare de Lyon, Paris", "La Défense")` → one fused recommendation
 - `plan_journey("Eiffel Tower, Paris", "Château de Vincennes")`
 - `line_traffic("14")` — then `line_traffic()` for the whole network
 - `next_departures("Châtelet")`
 - `bike_route("Bastille, Paris", "La Défense")` → ~12 km, ~45-50 min (traffic-light adjusted)
+- `velib_nearby("Notre-Dame, Paris")` → nearest Vélib' stations, live availability
 - `weather("Eiffel Tower, Paris")`
+
+### One-command demo
+
+A runnable script drives the hosted server and prints a few real results:
+
+```bash
+uv run python examples/demo.py
+# point elsewhere / pass keys:
+FLANEUR_URL=http://localhost:8000/mcp PRIM_API_KEY=… OPENWEATHER_API_KEY=… \
+  uv run python examples/demo.py
+```
+
+Sample output:
+
+```
+== mobility_advice: Gare de Lyon → La Défense ==
+  🚇 Take public transport: ~33 min, 1 transfer(s), 4.60 € (status: SIGNIFICANT_DELAYS).
+
+== velib_nearby: Notre-Dame ==
+   Arcole - Notre-Dame — 115 m — 9 bikes, 3 docks
+   Quai aux Fleurs - Pont Saint-Louis — 121 m — 19 bikes, 1 docks
+
+== plan_journey: Châtelet → Charles de Gaulle - Étoile ==
+   31 min, 1 transfer(s), 2.05 €
+     · Tramway T3b → Porte Dauphine
+     · Bus 73 → Musée d'Orsay
+```
 
 ## 🔑 Get the keys (both free)
 
@@ -191,18 +223,23 @@ Example calls once connected:
 flaneur/
 ├── src/flaneur/          # the MCP server
 │   ├── server.py         #   FastMCP app, tool registration, /healthz
+│   ├── advice.py         #   mobility_advice (transit + bike + weather fusion)
 │   ├── config.py         #   settings (keys, URLs, cache TTL)
-│   ├── prim_client.py    #   shared httpx client: per-request keys, retries, errors
+│   ├── prim_client.py    #   shared httpx client: per-request keys, retries, logging
 │   ├── geocoding.py      #   address → coordinates (national geocoder + Navitia)
-│   ├── journeys.py       #   plan_journey + disruption-enriched summaries
+│   ├── journeys.py       #   plan_journey + disruption-enriched summaries + fare
 │   ├── disruptions.py    #   line_traffic (disruptions_bulk / line_reports)
 │   ├── departures.py     #   next_departures (SIRI stop-monitoring)
 │   ├── bike.py           #   bike_route (BRouter) + traffic-light correction
+│   ├── velib.py          #   velib_nearby (Vélib' GBFS availability)
 │   ├── weather.py        #   weather (OpenWeatherMap) + in-memory cache
 │   └── models.py         #   Pydantic output models
 ├── skills/itinerary/     # the agent skill (flaneur-itinerary)
-├── tests/                # unit tests (parsing/logic, no live network)
+├── examples/demo.py      # one-command demo against the live/local server
+├── tests/                # 61 unit tests (parsing + tool layer via respx)
+├── Dockerfile            # portable container image
 ├── render.yaml           # one-click Render deployment
+├── docs/ci-workflow.yml  # GitHub Actions CI (copy to .github/workflows/ to enable)
 └── pyproject.toml
 ```
 
@@ -235,6 +272,18 @@ The repo includes a `render.yaml` blueprint:
 > If you rename the entry point in `pyproject.toml`, update the dashboard **Start
 > Command** to match — it isn't re-read from `render.yaml` on an existing service.
 
+**Or with Docker** (runs anywhere):
+
+```bash
+docker build -t flaneur .
+docker run -p 8000:8000 flaneur   # MCP at http://localhost:8000/mcp
+```
+
+**CI:** the GitHub Actions workflow lives at
+[`docs/ci-workflow.yml`](docs/ci-workflow.yml) (ruff lint + format check +
+pytest). Copy it to `.github/workflows/ci.yml` to activate it — it's shipped
+outside that path because the development token lacked the `workflow` scope.
+
 ## 🔬 Engineering notes
 
 A few decisions worth surfacing:
@@ -263,8 +312,13 @@ A few decisions worth surfacing:
 
 ## ✅ Tests
 
+61 tests, no live network (upstreams are mocked with `respx`): parsing, timing,
+caching, key resolution, the fusion decision logic, and the tool layer end-to-end.
+
 ```bash
-uv run pytest        # unit tests: parsing, timing, caching, key resolution — no live network
+uv run pytest          # run the suite
+uv run ruff check .    # lint
+uv run ruff format --check .
 ```
 
 ## License
