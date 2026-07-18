@@ -44,7 +44,12 @@ Data sources:
 - **SIRI Lite** via PRIM (`stop-monitoring`) — `apikey` header.
 - **National geocoder** (French national address database via Géoplateforme) — no key.
 - **BRouter** (open-source cycling router) for cycling — no key. PRIM can't compute
-  cycling routes (its Navitia coverage only routes walking).
+  cycling routes (its Navitia coverage only routes walking). BRouter's raw duration
+  assumes near-uninterrupted road cycling (~19-21 km/h observed in Paris testing), so
+  `bike_route` adds a realistic delay (~15 s) for each traffic-signal crossing actually
+  on the route, bringing estimates down to the ~11-15 km/h real-world range for dense
+  urban trips. The `shortest` profile is excluded: it can route onto footways at
+  walking pace, which is misleading for a cycling duration.
 - **OpenWeatherMap** for weather (responses cached ~10 min). Key required: per-request
   `X-OpenWeather-Api-Key` header, or `OPENWEATHER_API_KEY` fallback.
 
@@ -109,7 +114,7 @@ Example calls:
 - `plan_journey("Eiffel Tower, Paris", "Château de Vincennes")`
 - `line_traffic("14")` then `line_traffic()`
 - `next_departures("Châtelet")`
-- `bike_route("Bastille, Paris", "La Défense")` → ~12 km, ~37 min by bike
+- `bike_route("Bastille, Paris", "La Défense")` → ~12 km, ~45-50 min by bike (traffic-light adjusted)
 - `weather("Eiffel Tower, Paris")` → current conditions + forecast
 
 ## Deploying on Render

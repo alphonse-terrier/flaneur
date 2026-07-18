@@ -158,16 +158,20 @@ async def bike_route(
 
     Complements `plan_journey`: PRIM doesn't compute cycling routes, so this
     tool relies on the BRouter cycling router. Use it for any "how long by
-    bike from A to B?" question.
+    bike from A to B?" question, or to plan an arrival time by bike.
+
+    The reported duration adds a realistic delay for each traffic-signal or
+    stop crossing on the route, since raw router output assumes near-uninterrupted
+    riding and otherwise understates city travel time.
 
     Args:
         origin: Starting place — address, stop name, or `lon;lat` coordinates.
         destination: Ending place — same formats as `origin`.
-        profile: Cycling profile — `trekking` (balanced, default), `fastbike` (faster),
-            `shortest` (shortest distance).
+        profile: Cycling profile — `trekking` (balanced, default) or `fastbike` (faster).
 
     Returns:
-        The resolved places, the distance (km) and the estimated cycling duration (minutes).
+        The resolved places, the distance (km) and the estimated cycling duration (minutes),
+        including an urban traffic-light delay adjustment.
     """
     return await _bike_route(origin, destination, profile=profile)
 

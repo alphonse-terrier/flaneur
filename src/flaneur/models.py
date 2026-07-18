@@ -98,10 +98,15 @@ class BikeRoute(BaseModel):
 
     origin: GeoLocation
     destination: GeoLocation
-    profile: str = Field(description="Cycling profile used (trekking, fastbike, shortest).")
+    profile: str = Field(description="Cycling profile used (trekking or fastbike).")
     distance_km: float
     duration_minutes: int = Field(
-        description="Estimated cycling duration (profile pace, ~18 km/h for trekking)."
+        description=(
+            "Estimated cycling duration, including an added delay for each "
+            "traffic-signal/stop crossing on the route (BRouter's raw time "
+            "assumes near-uninterrupted road cycling and understates city "
+            "travel time otherwise)."
+        )
     )
     note: str | None = None
 
