@@ -10,12 +10,15 @@ so MCP tools return an actionable explanation instead of a raw exception.
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections.abc import Mapping
 from typing import Any
 
 import httpx
 
 from flaneur.config import Settings, get_settings
+
+logger = logging.getLogger("flaneur")
 
 # HTTP headers accepted for passing the PRIM key per request (case-insensitive).
 API_KEY_HEADERS = ("x-prim-api-key", "apikey", "prim-api-key")
@@ -171,14 +174,19 @@ async def _request_json(
             response = await client.get(url, params=params, headers=headers)
             response.raise_for_status()
         except httpx.HTTPStatusError as exc:
+            status = exc.response.status_code
             # 429/503 are often transient (per-IP rate limit): retry.
-            if exc.response.status_code in _RETRY_STATUS and attempt < _MAX_RETRIES:
+            if status in _RETRY_STATUS and attempt < _MAX_RETRIES:
+                logger.warning("%s: HTTP %s, retrying (attempt %s)", source, status, attempt + 1)
                 await asyncio.sleep(_RETRY_BACKOFF * (attempt + 1))
                 continue
+            logger.warning("%s: HTTP %s (giving up)", source, status)
             raise _explain_status(exc, source) from exc
         except httpx.TimeoutException as exc:
+            logger.warning("%s: request timed out", source)
             raise PrimError(f"{source}: request timed out.") from exc
         except httpx.HTTPError as exc:
+            logger.warning("%s: network error: %s", source, exc)
             raise PrimError(f"{source}: network error ({exc}).") from exc
 
         try:

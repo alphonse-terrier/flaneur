@@ -15,6 +15,7 @@ Transit tools rely on Île-de-France Mobilités' PRIM API.
 
 from __future__ import annotations
 
+import logging
 import os
 
 from mcp.server.fastmcp import FastMCP
@@ -256,9 +257,16 @@ def main() -> None:
 
     The port is read from $PORT (provided by Render), falling back to config.
     """
+    logging.basicConfig(
+        level=os.environ.get("LOG_LEVEL", "INFO"),
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
     settings = get_settings()
     mcp.settings.host = settings.host
     mcp.settings.port = int(os.environ.get("PORT", settings.port))
+    logging.getLogger("flaneur").info(
+        "Starting flaneur on %s:%s", mcp.settings.host, mcp.settings.port
+    )
     mcp.run(transport="streamable-http")
 
 
