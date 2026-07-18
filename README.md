@@ -47,6 +47,28 @@ Sources de données :
   <https://prim.iledefrance-mobilites.fr>, puis générez un jeton sous
   *Mon compte → Mes jetons d'authentification*.
 
+## Authentification — une clé par utilisateur
+
+Le serveur est **multi-utilisateurs** : chaque client fournit **sa propre clé PRIM**,
+transmise par requête dans un **en-tête HTTP**. La clé ne transite jamais dans la
+conversation du LLM et n'est jamais stockée par le serveur.
+
+En-têtes acceptés (par ordre de priorité) :
+
+| En-tête | Exemple |
+|---|---|
+| `X-PRIM-Api-Key` | `X-PRIM-Api-Key: <votre_jeton>` |
+| `apikey` | `apikey: <votre_jeton>` |
+| `Authorization` (Bearer) | `Authorization: Bearer <votre_jeton>` |
+
+Repli : si aucun en-tête n'est fourni, le serveur utilise la variable d'environnement
+`PRIM_API_KEY` si elle est définie (pratique en local ou pour une clé par défaut).
+Sur un déploiement public partagé, laissez `PRIM_API_KEY` vide pour forcer chaque
+utilisateur à apporter sa clé.
+
+> ⚠️ Déployez toujours derrière **HTTPS** (Render le fait par défaut) pour que la clé
+> soit chiffrée en transit.
+
 ## Installation & lancement local
 
 ```bash
@@ -85,18 +107,23 @@ Le dépôt contient un blueprint `render.yaml`. Sur Render :
 1. **New → Blueprint**, pointez sur ce dépôt.
 2. Render crée un *web service* Python qui lance `python -m idfm_mcp.server`
    (écoute sur `0.0.0.0:$PORT`).
-3. Dans **Environment**, ajoutez le secret `PRIM_API_KEY`.
+3. Laissez `PRIM_API_KEY` vide pour un serveur multi-utilisateurs (chaque client
+   apporte sa clé), ou renseignez un secret pour une clé de repli par défaut.
 4. Une fois déployé, l'endpoint MCP est exposé sur `https://<app>.onrender.com/mcp`.
 
 ### Brancher un client MCP
 
-Exemple de configuration client (serveur distant HTTP) :
+Chaque utilisateur configure le serveur distant avec **sa propre clé PRIM** dans les
+en-têtes :
 
 ```json
 {
   "mcpServers": {
     "idfm": {
-      "url": "https://<app>.onrender.com/mcp"
+      "url": "https://<app>.onrender.com/mcp",
+      "headers": {
+        "X-PRIM-Api-Key": "VOTRE_JETON_PRIM"
+      }
     }
   }
 }

@@ -1,18 +1,23 @@
 """Client HTTP partagé pour les appels à l'API PRIM et au géocodeur BAN.
 
 Un unique ``httpx.AsyncClient`` est réutilisé pour toute la durée de vie du
-serveur. Les erreurs réseau et HTTP sont converties en ``PrimError`` avec un
-message clair, afin que les outils MCP renvoient une explication exploitable
-au lieu d'une exception brute.
+serveur. La clé PRIM est résolue **par requête** : chaque client envoie la sienne
+dans un en-tête HTTP (``X-PRIM-Api-Key``), avec repli sur la variable d'env
+``PRIM_API_KEY``. Les erreurs réseau et HTTP sont converties en ``PrimError`` avec
+un message clair, afin que les outils MCP renvoient une explication exploitable au
+lieu d'une exception brute.
 """
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Mapping
 
 import httpx
 
 from idfm_mcp.config import Settings, get_settings
+
+# En-têtes HTTP acceptés pour transmettre la clé PRIM par requête (insensibles à la casse).
+API_KEY_HEADERS = ("x-prim-api-key", "apikey", "prim-api-key")
 
 
 class PrimError(RuntimeError):
@@ -46,12 +51,66 @@ async def close_client() -> None:
     _client = None
 
 
+def _current_request_headers() -> Mapping[str, str] | None:
+    """Retourne les en-têtes HTTP de la requête MCP en cours, si disponible.
+
+    En transport HTTP, le SDK MCP place la requête Starlette dans une ``ContextVar``.
+    En transport stdio (ou hors requête), il n'y a pas de requête : on renvoie None.
+    """
+    try:
+        from mcp.server.lowlevel.server import request_ctx
+    except Exception:  # pragma: no cover - SDK sans ce module
+        return None
+    try:
+        ctx = request_ctx.get()
+    except LookupError:
+        return None
+    request = getattr(ctx, "request", None)
+    return getattr(request, "headers", None)
+
+
+def _api_key_from_request() -> str | None:
+    """Extrait la clé PRIM d'un en-tête HTTP de la requête courante (Bearer inclus)."""
+    headers = _current_request_headers()
+    if not headers:
+        return None
+    for name in API_KEY_HEADERS:
+        value = headers.get(name)
+        if value and value.strip():
+            return value.strip()
+    auth = headers.get("authorization")
+    if auth and auth.lower().startswith("bearer "):
+        token = auth[len("bearer ") :].strip()
+        if token:
+            return token
+    return None
+
+
+def resolve_api_key() -> str:
+    """Clé PRIM à utiliser : en-tête de la requête en priorité, sinon variable d'env.
+
+    Lève ``PrimError`` avec un message d'aide si aucune clé n'est disponible.
+    """
+    key = _api_key_from_request()
+    if not key:
+        env_key = get_settings().prim_api_key.strip()
+        key = env_key or None
+    if not key:
+        raise PrimError(
+            "Aucune clé PRIM fournie. Envoyez votre jeton dans l'en-tête HTTP "
+            "'X-PRIM-Api-Key' (ou 'apikey', ou 'Authorization: Bearer <jeton>'). "
+            "Créez un jeton gratuit sur https://prim.iledefrance-mobilites.fr."
+        )
+    return key
+
+
 def _explain_status(exc: httpx.HTTPStatusError, source: str) -> PrimError:
     status = exc.response.status_code
     if status in (401, 403):
         return PrimError(
             f"{source} : authentification refusée (HTTP {status}). "
-            "Vérifiez que PRIM_API_KEY est défini et valide."
+            "Vérifiez la clé PRIM envoyée dans l'en-tête 'X-PRIM-Api-Key' "
+            "(ou la variable d'environnement PRIM_API_KEY)."
         )
     if status == 404:
         return PrimError(f"{source} : ressource introuvable (HTTP 404). Vérifiez les paramètres.")
@@ -108,20 +167,17 @@ async def prim_get(path: str, params: dict[str, Any] | None = None, *, source: s
     """GET authentifié sur la plateforme PRIM (Navitia ou marketplace).
 
     ``path`` peut être une URL absolue ou un chemin relatif à la base Navitia v2.
-    Le header ``apikey`` est injecté automatiquement.
+    La clé est résolue par requête (en-tête HTTP du client, sinon variable d'env)
+    et injectée dans le header ``apikey``.
     """
     settings = get_settings()
-    if not settings.has_api_key:
-        raise PrimError(
-            "PRIM_API_KEY n'est pas défini. Créez un jeton sur "
-            "https://prim.iledefrance-mobilites.fr et exportez-le dans l'environnement."
-        )
+    api_key = resolve_api_key()
 
     url = path if path.startswith("http") else f"{settings.prim_navitia_base}/{path.lstrip('/')}"
     return await _request_json(
         url,
         params=params,
-        headers={"apikey": settings.prim_api_key},
+        headers={"apikey": api_key},
         source=source,
     )
 
