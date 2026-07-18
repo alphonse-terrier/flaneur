@@ -21,6 +21,7 @@ rather than just "what's the timetable?".
 - [Authentication](#authentication--one-key-per-user)
 - [Local setup & run](#local-setup--run)
 - [Deploying on Render](#deploying-on-render)
+- [Skill: flaneur-itinerary](#skill-flaneur-itinerary)
 - [Limitations & assumptions](#limitations--assumptions)
 - [Tests](#tests)
 - [License](#license)
@@ -178,6 +179,31 @@ Each user configures the remote server with **their own PRIM key** (and, if usin
   }
 }
 ```
+
+## Skill: flaneur-itinerary
+
+The repo ships an agent **skill** at [`skills/itinerary/SKILL.MD`](skills/itinerary/SKILL.MD)
+that turns the raw MCP tools into a single "get me there on time" workflow. Where
+the MCP tools each answer one question, the skill orchestrates them into a decision:
+
+- Picks the mode (`public_transport` / `bike` / `walk` / `auto`) and, for `auto`,
+  chooses bike for short trips when the weather allows, else public transport.
+- Computes the **recommended departure time** to hit a target arrival, with a
+  configurable safety buffer — for *every* mode, not just transit (bike/walk
+  departure is back-computed from the target arrival).
+- Folds in disruptions, checks the weather along cycling/walking routes, and cross-
+  references **Google Calendar** for nearby appointments and journey conflicts.
+- Can scan a date range and auto-plan **inter-meeting journeys**, flagging any pair
+  of events too close together to travel between.
+
+It consumes this server's tools (`geocode_address`, `plan_journey`, `bike_route`,
+`weather`, …) plus a connected Google Calendar MCP. It's provider-agnostic about the
+calendar integration: confirm the Calendar tool/parameter names against whatever MCP
+you have connected (see the note in the skill).
+
+**Using it:** point your agent's skills directory at `skills/`, or copy
+`skills/itinerary/` into it. In Claude Code, invoke it by name once loaded; the
+skill's own file documents inputs, outputs, and the full procedure.
 
 ## Limitations & assumptions
 
