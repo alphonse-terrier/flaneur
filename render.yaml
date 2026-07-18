@@ -5,7 +5,7 @@ services:
     plan: free
     buildCommand: pip install .
     startCommand: python -m idfm_mcp.server
-    healthCheckPath: /mcp
+    healthCheckPath: /healthz
     envVars:
       # Optionnel : clé de repli côté serveur. En multi-utilisateurs, chaque
       # client envoie SA clé via l'en-tête 'X-PRIM-Api-Key' — laissez ceci vide.

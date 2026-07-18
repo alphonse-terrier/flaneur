@@ -12,6 +12,8 @@ from __future__ import annotations
 import os
 
 from mcp.server.fastmcp import FastMCP
+from starlette.requests import Request
+from starlette.responses import JSONResponse
 
 from idfm_mcp.config import get_settings
 from idfm_mcp.departures import next_departures as _next_departures
@@ -35,6 +37,12 @@ mcp = FastMCP(
         "`next_departures` pour les prochains passages à un arrêt."
     ),
 )
+
+
+@mcp.custom_route("/healthz", methods=["GET"])
+async def healthz(request: Request) -> JSONResponse:
+    """Point de santé public pour Render (l'endpoint MCP /mcp répond 406 à un GET nu)."""
+    return JSONResponse({"status": "ok", "service": "idfm-mcp"})
 
 
 @mcp.tool()
