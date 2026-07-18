@@ -43,6 +43,8 @@ class Settings(BaseSettings):
     geocoder_fallback_base: str = "https://api-adresse.data.gouv.fr"
     # Routeur cyclable BRouter (gratuit, sans clé) — PRIM ne route pas le vélo.
     brouter_base: str = "https://brouter.de/brouter"
+    # Météo Open-Meteo (gratuit, sans clé).
+    openmeteo_base: str = "https://api.open-meteo.com/v1/forecast"
 
     # --- Réseau ----------------------------------------------------------------
     http_timeout_seconds: float = 15.0

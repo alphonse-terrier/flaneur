@@ -106,6 +106,41 @@ class BikeRoute(BaseModel):
     note: str | None = None
 
 
+class WeatherCurrent(BaseModel):
+    """Conditions météo actuelles à un lieu."""
+
+    time: str | None = Field(default=None, description="Horodatage de la mesure (ISO 8601).")
+    condition: str | None = Field(default=None, description="Description (ex. « Partiellement nuageux »).")
+    weather_code: int | None = Field(default=None, description="Code météo WMO.")
+    temperature_c: float | None = None
+    apparent_temperature_c: float | None = Field(
+        default=None, description="Température ressentie (°C)."
+    )
+    precipitation_mm: float | None = None
+    wind_speed_kmh: float | None = None
+    humidity_pct: float | None = None
+
+
+class WeatherDay(BaseModel):
+    """Prévision météo journalière."""
+
+    date: str | None = None
+    condition: str | None = None
+    weather_code: int | None = None
+    temp_min_c: float | None = None
+    temp_max_c: float | None = None
+    precipitation_mm: float | None = Field(default=None, description="Cumul de précipitations (mm).")
+    precipitation_probability_pct: float | None = None
+
+
+class WeatherResult(BaseModel):
+    """Réponse de l'outil weather : météo actuelle + prévisions journalières."""
+
+    location: GeoLocation
+    current: WeatherCurrent | None = None
+    daily: list[WeatherDay] = Field(default_factory=list)
+
+
 class Departure(BaseModel):
     """Prochain passage à un arrêt (temps réel)."""
 

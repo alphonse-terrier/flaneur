@@ -17,6 +17,7 @@ affectant chaque étape du trajet.
 | `line_traffic(line?)` | Info trafic (travaux/incidents) : globale ou pour une ligne donnée. |
 | `next_departures(stop, limit?)` | Prochains passages temps réel à un arrêt. |
 | `bike_route(origin, destination, profile?)` | Itinéraire à vélo (durée + distance) via BRouter. |
+| `weather(location, days?)` | Météo actuelle + prévisions journalières pour une adresse (Open-Meteo). |
 
 `origin` / `destination` acceptent une **adresse** (« 29 rue de Rivoli, Paris »), un
 **nom d'arrêt** (« Châtelet ») ou des **coordonnées** `longitude;latitude`.
@@ -32,6 +33,7 @@ src/idfm_mcp/
 ├── disruptions.py   # Info trafic (disruptions_bulk / line_reports)
 ├── departures.py    # Prochains passages (SIRI stop-monitoring)
 ├── bike.py          # Itinéraire vélo (BRouter)
+├── weather.py       # Météo (Open-Meteo)
 ├── models.py        # Modèles Pydantic des sorties
 └── server.py        # Serveur FastMCP + enregistrement des outils
 ```
@@ -43,6 +45,7 @@ Sources de données :
 - **Géocodeur national** (Base Adresse Nationale via Géoplateforme) — sans clé.
 - **BRouter** (routeur cyclable open source) pour le vélo — sans clé. PRIM ne calcule
   pas d'itinéraire vélo (sa couverture Navitia ne route que la marche).
+- **Open-Meteo** pour la météo — sans clé.
 
 ## Prérequis
 
@@ -104,6 +107,7 @@ Exemples d'appels :
 - `line_traffic("14")` puis `line_traffic()`
 - `next_departures("Châtelet")`
 - `bike_route("Bastille, Paris", "La Défense")` → ~12 km, ~37 min à vélo
+- `weather("Tour Eiffel, Paris")` → conditions actuelles + prévisions
 
 ## Déploiement sur Render
 

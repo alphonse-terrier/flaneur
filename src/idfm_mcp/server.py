@@ -1,11 +1,12 @@
 """Serveur MCP IDFM : itinéraires, perturbations et prochains passages en Île-de-France.
 
-Expose cinq outils :
+Expose six outils :
 - ``geocode_address`` : adresse/lieu → coordonnées ;
 - ``plan_journey`` : itinéraire complet (transports) avec perturbations temps réel ;
 - ``line_traffic`` : info trafic (travaux/incidents) globale ou par ligne ;
 - ``next_departures`` : prochains passages temps réel à un arrêt ;
-- ``bike_route`` : itinéraire à vélo (via BRouter — PRIM ne route pas le vélo).
+- ``bike_route`` : itinéraire à vélo (via BRouter — PRIM ne route pas le vélo) ;
+- ``weather`` : météo actuelle et prévisions pour une adresse (via Open-Meteo).
 
 Les quatre premiers s'appuient sur l'API PRIM d'Île-de-France Mobilités.
 """
@@ -31,7 +32,9 @@ from idfm_mcp.models import (
     Disruption,
     GeoLocation,
     JourneyResult,
+    WeatherResult,
 )
+from idfm_mcp.weather import weather as _weather
 
 
 def _transport_security() -> TransportSecuritySettings:
@@ -59,7 +62,8 @@ mcp = FastMCP(
         "`plan_journey` pour calculer un trajet en transports en commun entre deux "
         "adresses avec l'impact des travaux et incidents, `line_traffic` pour l'info "
         "trafic d'une ligne, `next_departures` pour les prochains passages à un arrêt, "
-        "et `bike_route` pour un itinéraire à vélo (durée et distance)."
+        "`bike_route` pour un itinéraire à vélo (durée et distance), et `weather` pour "
+        "la météo d'une adresse."
     ),
     transport_security=_transport_security(),
 )
@@ -167,6 +171,23 @@ async def bike_route(
         Les lieux résolus, la distance (km) et la durée estimée à vélo (minutes).
     """
     return await _bike_route(origin, destination, profile=profile)
+
+
+@mcp.tool()
+async def weather(location: str, days: int = 3) -> WeatherResult:
+    """Récupère la météo (actuelle + prévisions) pour une adresse ou un lieu.
+
+    Pratique pour arbitrer entre marche, vélo et transports selon le temps.
+    S'appuie sur Open-Meteo (gratuit, sans clé).
+
+    Args:
+        location: Adresse, nom d'arrêt/ville, ou coordonnées `lon;lat`.
+        days: Nombre de jours de prévision (1 à 7, défaut 3).
+
+    Returns:
+        Le lieu résolu, les conditions actuelles et les prévisions journalières.
+    """
+    return await _weather(location, days=days)
 
 
 def main() -> None:
